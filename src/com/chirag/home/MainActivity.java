@@ -169,6 +169,10 @@ public class MainActivity extends Activity {
                 @Override // java.lang.Runnable
                 public final void run() {
                     MainActivity.lambda$onCreate$0(textView, jFadeMs);
+                    if (MainActivity.this.idle) {
+                        // the new title has its own width: keep it flush with the corner
+                        textView.post(new Runnable() { public void run() { moveCaption(true, 0L); } });
+                    }
                 }
             }).start();
         }
@@ -376,6 +380,43 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Gallery mode: the painting's label glides to the bottom-right corner, like a museum card; back to its place on wake. */
+    static final int CAPTION_CORNER_DP = 48;
+
+    void moveCaption(boolean corner, long ms) {
+        if (this.caption == null) {
+            return;
+        }
+        float tx = 0f, ty = 0f;
+        if (corner) {
+            int[] at = new int[2];
+            this.caption.getLocationInWindow(at);
+            View win = getWindow().getDecorView();
+            float base = this.caption.getTranslationX();
+            float baseY = this.caption.getTranslationY();
+            int m = Ui.dp(this, CAPTION_CORNER_DP);
+            tx = (win.getWidth() - m - this.caption.getWidth()) - (at[0] - base);
+            ty = (win.getHeight() - m - this.caption.getHeight()) - (at[1] - baseY);
+        }
+        // Its own animator: the label's alpha is animated by the painting cross-fade (caption.animate()), and the two must not cancel each other.
+        if (this.captionMove != null) this.captionMove.cancel();
+        this.captionMove = null;
+        if (ms <= 0) {
+            this.caption.setTranslationX(tx);
+            this.caption.setTranslationY(ty);
+        } else {
+            android.animation.AnimatorSet move = new android.animation.AnimatorSet();
+            move.playTogether(android.animation.ObjectAnimator.ofFloat(this.caption, "translationX", tx),
+                    android.animation.ObjectAnimator.ofFloat(this.caption, "translationY", ty));
+            move.setDuration(ms);
+            move.setInterpolator(new AccelerateDecelerateInterpolator());
+            move.start();
+            this.captionMove = move;
+        }
+    }
+
+    android.animation.AnimatorSet captionMove;
+
     /** Fade every overlay part except the painting's label; the wall keeps rotating underneath. */
     void enterIdle() {
         if (this.idle || !this.resumed) {
@@ -411,6 +452,7 @@ public class MainActivity extends Activity {
             v.animate().alpha(0.0f).setStartDelay(0L).setDuration(IDLE_FADE_MS).setInterpolator(ease).withEndAction(null).start();
         }
         this.nowPlaying.setIdle(true, IDLE_FADE_MS);
+        moveCaption(true, IDLE_FADE_MS);
         Log.i("Home", "gallery mode on");
     }
 
@@ -431,6 +473,7 @@ public class MainActivity extends Activity {
         }
         this.idleFaded.clear();
         this.nowPlaying.setIdle(false, ms);
+        moveCaption(false, ms);
         View f = this.idleFocus;
         this.idleFocus = null;
         if (ms > 0 && f != null && f.isAttachedToWindow() && f.isShown() && getCurrentFocus() != f) {
