@@ -25,7 +25,7 @@ final class VoiceClient {
     static final String JW_QUERY = "query S($c: Country!, $l: Language!, $f: TitleFilter){ popularTitles(country:$c, first:8, filter:$f){ edges{ node{ id objectType content(country:$c, language:$l){ title originalTitle originalReleaseYear externalIds{ imdbId tmdbId } posterUrl backdrops{ backdropUrl } } offers(country:$c, platform:WEB){ monetizationType presentationType standardWebURL deeplinkURL(platform:ANDROID_TV) package{ packageId clearName technicalName } } ... on Show { seasons(sortDirection:ASC){ id totalEpisodeCount content(country:$c, language:$l){ seasonNumber } } } } } } }";
     static final String JW_SEASON_QUERY = "query E($id: ID!, $c: Country!, $l: Language!, $n: Int, $o: Int){ node(id:$id){ id ... on Season { totalEpisodeCount content(country:$c, language:$l){ seasonNumber } episodes(sortDirection:ASC, limit:$n, offset:$o){ id content(country:$c, language:$l){ title episodeNumber seasonNumber isReleased } offers(country:$c, platform:WEB){ monetizationType presentationType standardWebURL deeplinkURL(platform:ANDROID_TV) webDeeplinkURL: deeplinkURL(platform:WEB) package{ packageId clearName technicalName } } } } } }";
     static final String JW_URL = "https://apis.justwatch.com/graphql";
-    static final String ROUTER_SYSTEM = "You route voice requests on an Android TV in India. The user speaks English, Hindi or Hinglish (chalao / lagao = play, dikhao = show, naya / latest = newest, agla = next, phir se / dobara = again, gaana = song). Call exactly one tool. Speech recognition may misspell names: correct an obvious misspelling of a well-known name, otherwise keep the user's words. Never guess facts: do not decide which app has a title, and do not replace a description (\"the new Shah Rukh Khan movie\") with a title you think it is - pass the words on. Set app only when the user named one. Use resume when the user means something from the history without naming a new title (continue, resume, next episode, play it again, that video I was watching).";
+    static final String ROUTER_SYSTEM = "You route voice requests on an Android TV in India. The user speaks English, Hindi or Hinglish (chalao / lagao = play, dikhao = show, naya / latest = newest, agla = next, phir se / dobara = again, gaana = song). Call exactly one tool. Speech recognition may misspell names: correct an obvious misspelling of a well-known name, otherwise keep the user's words. Never guess facts: do not decide which app has a title, and do not replace a description (\"the new Shah Rukh Khan movie\") with a title you think it is - pass the words on. Set app only when the user named one. Use resume when the user means something from the history without naming a new title (continue, resume, next episode, play it again, that video I was watching). Anything to listen to is play_music: songs, singers, bands, albums, playlists, and genres or moods such as lo-fi, sad songs, 90s Bollywood, chill music for studying, workout music, bhajans; a well-known song title alone (Kesariya, Shape of You, Tum Hi Ho) is music, not a film. Films, series, anime and YouTube videos or creators are not music. Hinglish: gaana / gaane = song(s), purane = old, sunao / bajao = play.";
     private static final String STR = "{\"type\":\"string\"}";
     final Config cfg;
     final Http http;
@@ -84,7 +84,7 @@ final class VoiceClient {
         }
     };
     private static final char[] B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
-    static final String ROUTER_TOOLS = "[" + tool("play_title", "Play or find a film, series or anime on a streaming app (Netflix, Prime Video, JioHotstar, Apple TV, Crunchyroll).", "\"title\":{\"type\":\"string\"},\"season\":{\"type\":\"integer\"},\"episode\":{\"type\":\"integer\"},\"app\":{\"type\":\"string\"}", "title") + "," + tool("youtube_latest", "Play the newest upload of a YouTube channel or creator.", "\"channel\":{\"type\":\"string\"}", "channel") + "," + tool("youtube_channel", "Open a YouTube channel's page.", "\"channel\":{\"type\":\"string\"}", "channel") + "," + tool("youtube_search", "Play a specific YouTube video, or search YouTube for a topic.", "\"query\":{\"type\":\"string\"}", "query") + "," + tool("play_music", "Play a song, artist, album or playlist.", "\"query\":{\"type\":\"string\"},\"app\":{\"type\":\"string\"}", "query") + "," + tool("resume", "Continue something from the watch history below: continue = carry on with it, next_episode = the episode after the one last watched, again = play the last thing again. reference = the user's words for which item, empty if none.", "\"what\":{\"type\":\"string\",\"enum\":[\"continue\",\"next_episode\",\"again\"]},\"reference\":{\"type\":\"string\"}", "what") + "," + tool("open_app", "Just open an app.", "\"app\":{\"type\":\"string\"}", "app") + "]";
+    static final String ROUTER_TOOLS = "[" + tool("play_title", "Play or find a film, series or anime on a streaming app (Netflix, Prime Video, JioHotstar, Apple TV, Crunchyroll).", "\"title\":{\"type\":\"string\"},\"season\":{\"type\":\"integer\"},\"episode\":{\"type\":\"integer\"},\"app\":{\"type\":\"string\"}", "title") + "," + tool("youtube_latest", "Play the newest upload of a YouTube channel or creator.", "\"channel\":{\"type\":\"string\"}", "channel") + "," + tool("youtube_channel", "Open a YouTube channel's page.", "\"channel\":{\"type\":\"string\"}", "channel") + "," + tool("youtube_search", "Play a specific YouTube video, or search YouTube for a topic.", "\"query\":{\"type\":\"string\"}", "query") + "," + tool("play_music", "Play music: a song (even named without the word song), an artist, an album, a playlist, or a genre, mood, era, language or activity. query = a short phrase a music app's search would match well, in English letters: a song or artist name as is (\"kesariya\", \"arijit singh\", \"coldplay\"); for a genre or mood a playlist-style phrase (\"lofi beats\", \"sad hindi songs\", \"90s bollywood hits\", \"chill study music\", \"workout music\", \"old hindi songs\").", "\"query\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\",\"description\":\"song, artist, album, playlist, genre or mood\"},\"artist\":{\"type\":\"string\"},\"seed\":{\"type\":\"string\",\"description\":\"for a genre, mood or era only: one popular song that fits it well, as title - artist\"},\"app\":{\"type\":\"string\"}", "query") + "," + tool("resume", "Continue something from the watch history below: continue = carry on with it, next_episode = the episode after the one last watched, again = play the last thing again. reference = the user's words for which item, empty if none.", "\"what\":{\"type\":\"string\",\"enum\":[\"continue\",\"next_episode\",\"again\"]},\"reference\":{\"type\":\"string\"}", "what") + "," + tool("open_app", "Just open an app.", "\"app\":{\"type\":\"string\"}", "app") + "]";
 
     interface Http {
         Resp call(String str, String str2, Map<String, String> map, byte[] bArr, int i) throws IOException;
@@ -109,6 +109,9 @@ final class VoiceClient {
         String geminiKey = "";
         String geminiModel = "gemini-3.5-flash-lite";
         String tmdbKey = "";
+        /** Spotify Web API app (free, developer.spotify.com): lets music play on Spotify by finding the track. */
+        String spotifyId = "";
+        String spotifySecret = "";
         boolean justwatch = false;
         boolean llm = true;
         double autoPlay = 0.8d;
@@ -121,6 +124,10 @@ final class VoiceClient {
         String language = "";
         String region = "IN";
         int maxResults = 3;
+        /** Speak a short reply for each outcome (voice.json "speak", default true). */
+        boolean speak = true;
+        /** Packages installed on this TV (filled in by the activity); null = unknown, assume all are. */
+        java.util.Set<String> installed;
         String sttPrompt = "Movie and web series names, Hindi names written in English letters: Pushpa 2, Panchayat, Mirzapur, Stree 2, Jawan, Kantara, Dangal, Sholay, Animal, The Family Man.";
         final Map<String, String> searchLinks = new LinkedHashMap();
 
@@ -146,6 +153,8 @@ final class VoiceClient {
             config.deepgramKey = key(objTryParse, "deepgram_key");
             config.geminiKey = key(objTryParse, "gemini_key");
             config.tmdbKey = key(objTryParse, "tmdb_key");
+            config.spotifyId = key(objTryParse, "spotify_client_id");
+            config.spotifySecret = key(objTryParse, "spotify_client_secret");
             config.groqSttModel = opt(objTryParse, "groq_stt_model", config.groqSttModel);
             config.groqLlmModel = opt(objTryParse, "groq_llm_model", config.groqLlmModel);
             config.sarvamModel = opt(objTryParse, "sarvam_model", config.sarvamModel);
@@ -167,6 +176,7 @@ final class VoiceClient {
             config.language = VoiceJson.str(objTryParse, "language").trim();
             config.region = opt(objTryParse, "region", config.region);
             config.sttPrompt = opt(objTryParse, "stt_prompt", config.sttPrompt);
+            config.speak = VoiceJson.bool(objTryParse, config.speak, "speak");
             double dNum2 = VoiceJson.num(objTryParse, "max_results");
             if (dNum2 >= 1.0d) {
                 config.maxResults = (int) Math.min(3.0d, dNum2);
@@ -235,6 +245,19 @@ final class VoiceClient {
                 }
             }
             return false;
+        }
+
+        /** True when the app is on this TV, or when that is not known. */
+        boolean has(String appKey) {
+            VoiceCore.App app = VoiceCore.app(appKey);
+            if (app == null || app.pkg == null) {
+                return false;
+            }
+            return this.installed == null || this.installed.contains(app.pkg) || this.installed.contains(appKey);
+        }
+
+        boolean hasSpotifyApi() {
+            return !this.spotifyId.isEmpty() && !this.spotifySecret.isEmpty();
         }
 
         boolean hasIndex() {
@@ -807,23 +830,113 @@ final class VoiceClient {
         if (!this.cfg.llm || this.cfg.groqKey.isEmpty()) {
             return null;
         }
-        try {
-            Object objAt = VoiceJson.at(json("Groq router", "POST", "https://api.groq.com/openai/v1/chat/completions", headers("Authorization", "Bearer " + this.cfg.groqKey, "Content-Type", "application/json"), utf8("{\"model\":" + VoiceJson.quote(this.cfg.groqRouterModel) + ",\"temperature\":0,\"max_completion_tokens\":400,\"tool_choice\":\"required\",\"tools\":" + ROUTER_TOOLS + ",\"messages\":[{\"role\":\"system\",\"content\":" + VoiceJson.quote(ROUTER_SYSTEM + (str2.isEmpty() ? "" : "\nRecently watched on this TV, newest first:\n" + str2)) + "},{\"role\":\"user\",\"content\":" + VoiceJson.quote(str) + "}]}"), i), "choices", 0, "message", "tool_calls", 0, "function");
-            Routed routed = new Routed();
-            routed.tool = VoiceJson.str(objAt, "name");
-            Object objTryParse = VoiceJson.tryParse(VoiceJson.str(objAt, "arguments"));
-            if (!routed.tool.isEmpty() && (objTryParse instanceof Map)) {
-                for (Map.Entry<?, ?> entry : ((Map<?, ?>) objTryParse).entrySet()) {
-                    String str3 = VoiceJson.str(objTryParse, String.valueOf(entry.getKey()));
-                    if (!str3.isEmpty() && str3.length() <= 200) {
-                        routed.args.put(String.valueOf(entry.getKey()), str3);
-                    }
+        long start = System.nanoTime();
+        for (int attempt = 0; ; attempt++) {
+            int left = i - (int) ((System.nanoTime() - start) / 1000000);
+            try {
+                return routeOnce(str, str2, Math.max(500, left));
+            } catch (VoiceException e) {
+                this.trace.append("router failed: ").append(e.getMessage()).append("; ");
+                // gpt-oss now and then answers without a tool call, or with bad arguments; one quick retry fixes it.
+                String m = e.getMessage() == null ? "" : e.getMessage();
+                boolean toolSlip = m.contains("tool_use_failed") || m.contains("did not call a tool") || m.contains("validation failed");
+                left = i - (int) ((System.nanoTime() - start) / 1000000);
+                if (attempt > 0 || !toolSlip || left < 900) {
+                    return null;
                 }
-                return routed;
             }
+        }
+    }
+
+    private Routed routeOnce(String str, String str2, int i) throws VoiceException {
+        Object objAt = VoiceJson.at(json("Groq router", "POST", "https://api.groq.com/openai/v1/chat/completions", headers("Authorization", "Bearer " + this.cfg.groqKey, "Content-Type", "application/json"), utf8("{\"model\":" + VoiceJson.quote(this.cfg.groqRouterModel) + ",\"temperature\":0,\"max_completion_tokens\":400," + (this.cfg.groqRouterModel.startsWith("openai/gpt-oss") ? "\"reasoning_effort\":\"low\"," : "") + "\"tool_choice\":\"required\",\"tools\":" + ROUTER_TOOLS + ",\"messages\":[{\"role\":\"system\",\"content\":" + VoiceJson.quote(ROUTER_SYSTEM + (str2.isEmpty() ? "" : "\nRecently watched on this TV, newest first:\n" + str2)) + "},{\"role\":\"user\",\"content\":" + VoiceJson.quote(str) + "}]}"), i), "choices", 0, "message", "tool_calls", 0, "function");
+        Routed routed = new Routed();
+        routed.tool = VoiceJson.str(objAt, "name");
+        Object objTryParse = VoiceJson.tryParse(VoiceJson.str(objAt, "arguments"));
+        if (routed.tool.isEmpty() || !(objTryParse instanceof Map)) {
             return null;
+        }
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) objTryParse).entrySet()) {
+            String str3 = VoiceJson.str(objTryParse, String.valueOf(entry.getKey()));
+            if (!str3.isEmpty() && str3.length() <= 200) {
+                routed.args.put(String.valueOf(entry.getKey()), str3);
+            }
+        }
+        return routed;
+    }
+
+    /** A Spotify track found for a music request. */
+    static final class Track {
+        String id = "";
+        String name = "";
+        String artist = "";
+        int popularity;
+
+        public String toString() {
+            return this.name + " - " + this.artist + " (" + this.id + ", popularity " + this.popularity + ")";
+        }
+    }
+
+    private static String spotifyToken = "";
+    private static long spotifyTokenUntil;
+
+    private synchronized String spotifyToken(int timeoutMs) throws VoiceException {
+        if (!spotifyToken.isEmpty() && System.currentTimeMillis() < spotifyTokenUntil) {
+            return spotifyToken;
+        }
+        Object o = json("Spotify sign-in", "POST", "https://accounts.spotify.com/api/token", headers("Authorization", "Basic " + base64(utf8(this.cfg.spotifyId + ":" + this.cfg.spotifySecret)), "Content-Type", "application/x-www-form-urlencoded"), utf8("grant_type=client_credentials"), timeoutMs);
+        String token = VoiceJson.str(o, "access_token");
+        if (token.isEmpty()) {
+            throw new VoiceException("Spotify sign-in gave no token");
+        }
+        spotifyToken = token;
+        spotifyTokenUntil = System.currentTimeMillis() + Math.max(60, (long) VoiceJson.num(o, "expires_in") - 60) * 1000;
+        return token;
+    }
+
+    /**
+     * Finds the Spotify track to start: the best match for a song, the top match for an artist, or for a genre or
+     * mood the given seed song (else the phrase itself). Null when nothing fits or Spotify is not set up.
+     */
+    Track spotifyTrack(String q, String kind, String artist, int timeoutMs) {
+        if (!this.cfg.hasSpotifyApi() || q.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            String token = spotifyToken(timeoutMs);
+            String search = q;
+            if ("artist".equals(kind)) {
+                search = "artist:\"" + q + "\"";
+            } else if (!artist.isEmpty() && "song".equals(kind) && !VoiceCore.words(q).containsAll(VoiceCore.words(artist))) {
+                search = q + " artist:\"" + artist + "\"";
+            }
+            Object o = json("Spotify search", "GET", "https://api.spotify.com/v1/search?type=track&limit=8&market=" + VoiceCore.enc(this.cfg.region.isEmpty() ? "IN" : this.cfg.region) + "&q=" + VoiceCore.enc(search), headers("Authorization", "Bearer " + token), null, timeoutMs);
+            Track best = null;
+            double bestScore = -1;
+            int rank = 0;
+            for (Object item : VoiceJson.list(o, "tracks", "items")) {
+                Track t = new Track();
+                t.id = VoiceJson.str(item, "id");
+                t.name = VoiceJson.str(item, "name");
+                t.artist = VoiceJson.str(item, "artists", 0, "name");
+                t.popularity = (int) VoiceJson.num(item, "popularity");
+                if (!t.id.matches("[A-Za-z0-9]{22}")) {
+                    continue;
+                }
+                // Spotify's own order first, then popularity; for a named song, prefer a name that matches.
+                double score = 1.0 - rank * 0.08 + t.popularity / 250.0;
+                if ("song".equals(kind) || kind.isEmpty()) {
+                    score += VoiceCore.similarity(q, t.name) * 0.5;
+                }
+                rank++;
+                if (score > bestScore) {
+                    best = t;
+                    bestScore = score;
+                }
+            }
+            return best;
         } catch (VoiceException e) {
-            this.trace.append("router failed: ").append(e.getMessage()).append("; ");
+            this.trace.append("Spotify failed: ").append(e.getMessage()).append("; ");
             return null;
         }
     }

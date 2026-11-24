@@ -50,6 +50,11 @@ final class VoiceAgent {
     private static final Pattern NEXT_ONLY = Pattern.compile("^(?:play |watch |start )?(?:the )?(?:next|agla|agli|agle) (?:episode|ep|one)(?: chalao| lagao| play)?$");
     private static final Set<String> VIDEO_W = set("video", "videos", "vlog", "vlogs", "trailer", "teaser", "livestream", "podcast");
     private static final Set<String> MUSIC_W = set("song", "songs", "gaana", "gaane", "gana", "gane", "music", "playlist", "album", "bhajan", "ghazal");
+    /** Genre, mood, era and activity words: "play some lo-fi", "sad songs", "90s hits", "workout". */
+    static final Set<String> GENRE_W = set("lofi", "jazz", "blues", "edm", "techno", "trance", "house", "remix", "remixes", "instrumental", "beats", "hits", "chartbusters", "qawwali", "sufi", "bhajan", "bhajans", "ghazal", "ghazals", "aarti", "kirtan", "lullaby", "lullabies", "karaoke", "hiphop", "rap", "rock", "metal", "classical", "carnatic", "hindustani", "kpop", "indie", "acoustic", "unplugged", "devotional", "mashup", "jukebox", "dj");
+    static final Set<String> MOOD_W = set("chill", "chilled", "sad", "romantic", "workout", "gym", "running", "study", "studying", "focus", "sleep", "sleeping", "relaxing", "calm", "peaceful", "meditation", "upbeat", "energetic", "motivational", "retro", "purane", "puraane", "evergreen", "80s", "90s", "70s", "60s", "2000s", "soothing");
+    /** Words that say a request is about a film or a show, not music. */
+    private static final Set<String> SCREEN_W = set("movie", "movies", "film", "films", "series", "show", "shows", "season", "episode", "episodes", "trailer", "webseries", "serial", "documentary", "anime");
     private static final Set<String> NEW_W = set("latest", "newest", "new", "recent", "naya", "nayi", "naye", "taaza");
     private static final Pattern SE = Pattern.compile("\\bS(\\d{1,2}) E(\\d{1,4})\\b");
     private static final Set<String> REF_FILLER = set("that", "the", "my", "this", "video", "show", "movie", "film", "series", "one", "i", "was", "watching", "wala", "wali", "vala", "vali", "again");
@@ -81,6 +86,11 @@ final class VoiceAgent {
         String entity = "";
         String alt = "";
         String what = "";
+        /** For play_music: song, artist, album, playlist, genre or mood (empty = not known). */
+        String kind = "";
+        /** For a genre or mood: a song that fits, "title - artist" (from the router), to start Spotify with. */
+        String seed = "";
+        String artist = "";
         boolean fromRules = true;
 
         Route() {
@@ -97,6 +107,8 @@ final class VoiceAgent {
         String label = "";
         String detail = "";
         String where = "";
+        /** What to say aloud when this is played; empty = built from label and where. */
+        String say = "";
         List<VoiceCore.Link> links = new ArrayList();
 
         Candidate() {
@@ -207,7 +219,7 @@ final class VoiceAgent {
             }
         }
         VoiceClient.Routed routed = routedArr[0];
-        this.trace.add("understand " + ms(jNanoTime) + "ms: rules=" + routeRules + (routeRules.strong ? " (explicit)" : "") + ", router=" + (routed != null ? routed.toString() : useRouter ? "no answer" : "off"));
+        this.trace.add("understand " + ms(jNanoTime) + "ms: rules=" + routeRules + (routeRules.strong ? " (explicit)" : "") + ", router=" + (routed != null ? routed.toString() : useRouter ? "no answer" + (voiceClient.trace.length() > 0 ? " (" + voiceClient.trace.toString().trim() + ")" : "") : "off"));
         long jNanoTime2 = System.nanoTime();
         double[] dArr = new double[2];
         boolean[] zArr = new boolean[1];
@@ -230,7 +242,8 @@ final class VoiceAgent {
             route = routeRules;
         }
         this.trace.add("resolve " + (route == routeRules ? jMs : ms(jNanoTime2)) + "ms: " + (found == null ? "nothing to look up" : found.cands.size() + " found" + (found.note.isEmpty() ? "" : ", " + found.note)) + " [" + this.client.trace.toString().trim() + "]");
-        boolean alsoTitle = zArr[0] && foundRules != null && foundRules.titles != null && foundRules.titles.confident();
+        boolean alsoTitle = zArr[0] && foundRules != null && foundRules.titles != null && foundRules.titles.confident()
+                && (!route.name.equals(MUSIC) || VoiceCore.similarity(foundRules.titles.titles.get(0).name, queryUnderstand.text) >= MATCH_GATE);
         if (alsoTitle && found != null && found.history <= 0.0d) {
             found.caps.add("could also be the title \"" + foundRules.titles.titles.get(0).name + "\"");
             dArr[0] = 0.3d;
@@ -369,30 +382,46 @@ final class VoiceAgent {
         boolean z2 = (query.app == null || zEquals || zEquals2) ? false : true;
         List<String> listWords = VoiceCore.words(str2);
         if (!z2 && !zEquals2) {
-            Matcher matcher2 = LATEST_BY.matcher(str2);
-            if (!matcher2.matches()) {
-                matcher2 = X_LATEST.matcher(str2);
-                if (!matcher2.matches()) {
-                    Matcher matcher3 = CHANNEL.matcher(str2);
-                    if (matcher3.matches() && (zEquals || listWords.size() <= 5)) {
-                        route.name = YT_CHANNEL;
-                        route.entity = matcher3.group(1).trim();
-                        route.strong = true;
-                        return route;
-                    }
-                }
+            Matcher latest = LATEST_BY.matcher(str2);
+            if (!latest.matches()) {
+                latest = X_LATEST.matcher(str2);
             }
-            route.name = YT_LATEST;
-            route.entity = matcher2.group(1).trim();
-            route.recent = true;
-            route.strong = true;
-            return route;
+            if (latest.matches()) {
+                route.name = YT_LATEST;
+                route.entity = latest.group(1).trim();
+                route.recent = true;
+                route.strong = true;
+                return route;
+            }
+            Matcher channel = CHANNEL.matcher(str2);
+            if (channel.matches() && (zEquals || listWords.size() <= 5)) {
+                route.name = YT_CHANNEL;
+                route.entity = channel.group(1).trim();
+                route.strong = true;
+                return route;
+            }
         }
         boolean z3 = false;
         boolean z4 = false;
+        boolean genre = false;
+        boolean mood = false;
+        boolean screen = false;
+        String flat = " " + VoiceCore.join(listWords, " ") + " ";
+        if (flat.contains(" lo fi ") || flat.contains(" hip hop ") || flat.contains(" old is gold ")) {
+            genre = true;
+        }
         for (String str3 : listWords) {
-            if (MUSIC_W.contains(str3)) {
+            if (MUSIC_W.contains(str3) || "gaano".equals(str3)) {
                 z3 = true;
+            }
+            if (GENRE_W.contains(str3)) {
+                genre = true;
+            }
+            if (MOOD_W.contains(str3)) {
+                mood = true;
+            }
+            if (SCREEN_W.contains(str3)) {
+                screen = true;
             }
             if (VIDEO_W.contains(str3)) {
                 z4 = true;
@@ -401,13 +430,14 @@ final class VoiceAgent {
                 route.recent = true;
             }
         }
-        if (zEquals2 || (z3 && !z2 && !zEquals)) {
+        // Music: a music word ("songs", "gaane", "playlist"), a genre ("lo-fi", "jazz", "bhajan"), Spotify named,
+        // or a mood/era/activity on its own ("something chill for studying", "90s bollywood", "workout").
+        boolean musicy = z3 || (genre && !screen) || (mood && !screen && !z4);
+        if (zEquals2 || (musicy && !z2 && !(zEquals && z4))) {
             route.name = MUSIC;
-            route.entity = str2;
-            if (!zEquals2 && !z3) {
-                z = false;
-            }
-            route.strong = z;
+            route.entity = musicQuery(str2);
+            route.kind = listWords.contains("album") ? "album" : listWords.contains("playlist") ? "playlist" : genre ? "genre" : mood ? "mood" : "";
+            route.strong = zEquals2 || z3 || genre;
             return route;
         }
         if (zEquals || (z4 && !z2)) {
@@ -520,8 +550,16 @@ final class VoiceAgent {
         } else if (route2.name.equals(YT_LATEST) || route2.name.equals(YT_CHANNEL)) {
             route2.entity = routed.arg("channel");
             route2.recent = route2.name.equals(YT_LATEST);
-        } else if (route2.name.equals(YT_SEARCH) || route2.name.equals(MUSIC)) {
+        } else if (route2.name.equals(YT_SEARCH)) {
             route2.entity = routed.arg("query");
+        } else if (route2.name.equals(MUSIC)) {
+            route2.entity = routed.arg("query");
+            route2.kind = routed.arg("kind").toLowerCase(Locale.ROOT);
+            route2.seed = routed.arg("seed");
+            route2.artist = routed.arg("artist");
+            if (route2.entity.isEmpty()) {
+                route2.entity = VoiceCore.join(java.util.Arrays.asList(routed.arg("artist"), routed.arg("genre")), " ").trim();
+            }
         } else if (route2.name.equals(RESUME)) {
             route2.what = routed.arg("what");
             route2.entity = routed.arg("reference");
@@ -538,6 +576,19 @@ final class VoiceAgent {
             }
         } else {
             route2.name = UNKNOWN;
+        }
+        if (route2.name.equals(MUSIC) && !route2.entity.isEmpty() && route.name.equals(YT_SEARCH) && !route.entity.isEmpty()) {
+            // "play Coldplay on YouTube": the rules only know YouTube was named; the router knows it is music.
+            dArr[0] = 0.8d;
+            dArr[1] = same(route.entity, route2.entity);
+            return route2;
+        }
+        if (route2.name.equals(RESUME) && route.name.equals(PLAY_TITLE) && !route.strong && !route2.entity.isEmpty()
+                && same(route.entity, route2.entity) >= 0.9d) {
+            // "play Panchayat" while it is in the history: naming the title is enough, the app resumes it.
+            dArr[0] = 0.8d;
+            dArr[1] = 1.0d;
+            return route;
         }
         if (!route2.name.equals(UNKNOWN)) {
             if (!route.name.equals(UNKNOWN) || !route2.entity.isEmpty() || route2.name.equals(RESUME)) {
@@ -565,6 +616,13 @@ final class VoiceAgent {
                     return route2;
                 }
                 dArr[0] = (!route.name.equals(RESUME) || route.what.equals(route2.what) || route.what.equals("list")) ? 1.0d : 0.8d;
+                if (route.name.equals(MUSIC)) {
+                    if (!route2.kind.isEmpty()) {
+                        route.kind = route2.kind;
+                    }
+                    route.seed = route2.seed;
+                    route.artist = route2.artist;
+                }
                 if (!route2.entity.isEmpty() && !route2.entity.equalsIgnoreCase(route.entity)) {
                     route.alt = route2.entity;
                 }
@@ -596,7 +654,7 @@ final class VoiceAgent {
                     return videos(route, list);
                 }
                 if (route.name.equals(MUSIC)) {
-                    return "spotify".equals(route.app) ? action("Search Spotify for " + route.entity, "spotify", route.entity) : videos(route, list);
+                    return music(route, list);
                 }
                 if (route.name.equals(RESUME)) {
                     Found foundResume = resume(route, list, j);
@@ -850,8 +908,21 @@ final class VoiceAgent {
     private Found videos(Route route, List<Play> list) throws IOException {
         Found found = new Found();
         String str = !route.alt.isEmpty() ? route.alt : route.entity;
-        if (route.name.equals(MUSIC) && route.alt.isEmpty()) {
-            str = YouTubeSource.essence(route.entity) + (route.recent ? " new song" : " song");
+        boolean anyGood = false;
+        if (route.name.equals(MUSIC)) {
+            String q = musicSearch(route);
+            List<String> w = VoiceCore.words(q);
+            boolean said = w.contains("song") || w.contains("songs") || w.contains("music") || w.contains("playlist") || w.contains("album") || w.contains("jukebox");
+            anyGood = isBroad(route.kind) || "artist".equals(route.kind);
+            if (said) {
+                str = q;
+            } else if (anyGood) {
+                str = q + " music";
+            } else if ("artist".equals(route.kind)) {
+                str = q + " songs";
+            } else {
+                str = q + (route.recent ? " new song" : " song");
+            }
         }
         found.search = youtubeSearch(str);
         Set<String> setPlayedChannels = playedChannels(list);
@@ -874,10 +945,182 @@ final class VoiceAgent {
         }
         found.match = listSearch.get(0).cover;
         found.margin = listSearch.size() >= 2 ? Math.min(1.0d, Math.max(0.0d, listSearch.get(0).score - listSearch.get(1).score) / 0.15d) : 1.0d;
+        if (anyGood) {
+            // A genre or a mood: any of the top results is what was asked for.
+            found.match = Math.max(found.match, MATCH_GATE);
+            found.margin = 1.0d;
+        } else if (route.name.equals(MUSIC) && found.match >= MATCH_GATE) {
+            // A named song: other uploads of the same song scoring close is not a real doubt.
+            found.margin = 1.0d;
+        }
         if (setPlayedChannels.contains(listSearch.get(0).channel.toLowerCase(Locale.ROOT))) {
             found.history = 0.05d;
         }
         return found;
+    }
+
+    static boolean isBroad(String kind) {
+        return "genre".equals(kind) || "mood".equals(kind) || "playlist".equals(kind);
+    }
+
+    /** The words to search a music app with: the router's phrase when there is one, else the cleaned request. */
+    static String musicSearch(Route route) {
+        String q = !route.alt.isEmpty() ? route.alt : route.entity;
+        q = musicQuery(q);
+        return q.isEmpty() ? route.entity : q;
+    }
+
+    private static final Set<String> MUSIC_FILLER = set("some", "something", "any", "kuch", "koi", "me", "for", "please", "play", "put", "on", "kuchh", "acha", "achha", "accha", "achhe", "ache", "acche", "lagao", "chalao", "sunao", "suna", "bajao", "baja", "sunna", "hai");
+
+    /** "some sad hindi gaane" -> "sad hindi songs", "AR Rahman ke gaane" -> "ar rahman songs", "purane gaane" -> "old hindi songs". */
+    static String musicQuery(String text) {
+        List<String> out = new ArrayList();
+        List<String> w = VoiceCore.words(text);
+        boolean old = false;
+        for (int i = 0; i < w.size(); i++) {
+            String x = w.get(i);
+            if (out.isEmpty() && (MUSIC_FILLER.contains(x) || x.equals("the") || x.equals("album") || x.equals("playlist"))) {
+                continue;
+            }
+            if ((x.equals("ke") || x.equals("ka") || x.equals("ki")) && i + 1 < w.size() && MUSIC_W.contains(w.get(i + 1))) {
+                continue;
+            }
+            if (x.equals("gaane") || x.equals("gane") || x.equals("gaano") || x.equals("geet")) {
+                x = "songs";
+            } else if (x.equals("gaana") || x.equals("gana")) {
+                x = "song";
+            } else if (x.equals("purane") || x.equals("puraane") || x.equals("purana")) {
+                x = "old";
+                old = true;
+            } else if (x.equals("naye") || x.equals("naya") || x.equals("nayi")) {
+                x = "new";
+            } else if (x.equals("lo") && i + 1 < w.size() && w.get(i + 1).equals("fi")) {
+                x = "lofi";
+                i++;
+            }
+            out.add(x);
+        }
+        while (!out.isEmpty() && MUSIC_FILLER.contains(out.get(out.size() - 1))) {
+            out.remove(out.size() - 1);
+        }
+        if (old && !out.contains("hindi") && !out.contains("english") && !out.contains("punjabi")) {
+            out.add(out.indexOf("old") + 1, "hindi");
+        }
+        return VoiceCore.join(out, " ");
+    }
+
+    static final int SPOTIFY_TIMEOUT_MS = 4000;
+
+    /**
+     * Music: Spotify by default, YouTube when it was named. Spotify on the TV only starts playing from a track link,
+     * so the request is turned into a track with the Spotify Web API (the song, the artist's top match, or for a
+     * genre or mood a fitting seed song, after which Spotify's autoplay keeps similar music going). Without Spotify
+     * keys, or when nothing is found, the music plays from YouTube instead, unless Spotify was asked for by name.
+     */
+    private Found music(Route route, List<Play> list) throws IOException {
+        String q = musicSearch(route);
+        boolean wantYoutube = "youtube".equals(route.app);
+        boolean askedSpotify = "spotify".equals(route.app);
+        String why = "";
+        if (!wantYoutube && this.cfg.has("spotify")) {
+            boolean broad = isBroad(route.kind);
+            String lookFor = broad && !route.seed.isEmpty() ? route.seed.replace(" - ", " ") : broad ? q : withoutSongWord(q);
+            VoiceClient.Track track = this.client.spotifyTrack(lookFor, broad && !route.seed.isEmpty() ? "song" : route.kind, route.artist, SPOTIFY_TIMEOUT_MS);
+            if (track == null && broad && !route.seed.isEmpty()) {
+                track = this.client.spotifyTrack(q, route.kind, route.artist, SPOTIFY_TIMEOUT_MS);
+            }
+            if (track != null) {
+                Found found = new Found();
+                Candidate c = new Candidate();
+                boolean named = !broad && !"artist".equals(route.kind)
+                        && Math.max(VoiceCore.similarity(lookFor, track.name), VoiceCore.covers(lookFor, track.name + " " + track.artist)) >= 0.6d;
+                if (broad) {
+                    c.label = "Playing " + q + " on Spotify";
+                    c.detail = "starting with " + track.name + " · " + track.artist;
+                    c.say = "Playing " + speakable(q) + " on Spotify";
+                } else if ("artist".equals(route.kind)) {
+                    c.label = "Playing " + track.artist + " on Spotify";
+                    c.detail = songName(track.name);
+                    c.say = "Playing " + track.artist + " on Spotify";
+                } else {
+                    c.label = "Playing " + track.name + " on Spotify";
+                    c.detail = track.artist;
+                    c.say = "Playing " + songName(track.name) + " by " + track.artist + " on Spotify";
+                }
+                c.links = VoiceCore.spotifyTrackLinks(track.id, q, this.cfg.searchLinks);
+                found.cands.add(c);
+                found.action = true;
+                found.match = (broad || "artist".equals(route.kind) || named) ? 1.0d : 0.7d;
+                if (!named && !broad && !"artist".equals(route.kind)) {
+                    found.caps.add("Spotify's track \"" + track.name + "\" is not quite what was said");
+                }
+                found.note = "Spotify track " + track + " for \"" + q + "\"" + (route.kind.isEmpty() ? "" : " as " + route.kind) + (route.seed.isEmpty() ? "" : ", seed \"" + route.seed + "\"");
+                return found;
+            }
+            why = this.cfg.hasSpotifyApi() ? "no Spotify track found" : "no Spotify keys in voice.json";
+            if (askedSpotify) {
+                // Spotify was asked for by name: open it on a search for the words (it cannot be started from here).
+                Found found = new Found();
+                Candidate c = new Candidate();
+                c.label = "Open Spotify for " + q;
+                c.say = "Opening Spotify";
+                c.links = VoiceCore.searchLinks("spotify", q, this.cfg.searchLinks);
+                found.cands.add(c);
+                found.action = true;
+                found.match = 1.0d;
+                found.note = why + "; opening Spotify";
+                return found;
+            }
+        } else if (!wantYoutube) {
+            why = "Spotify is not installed";
+        }
+        Found found = videos(route, list);
+        if (found.cands.isEmpty() && !wantYoutube && this.cfg.has("spotify")) {
+            Found open = new Found();
+            Candidate c = new Candidate();
+            c.label = "Open Spotify for " + q;
+            c.say = "Opening Spotify";
+            c.links = VoiceCore.searchLinks("spotify", q, this.cfg.searchLinks);
+            open.cands.add(c);
+            open.action = true;
+            open.match = 1.0d;
+            open.note = why + "; nothing on YouTube either, opening Spotify";
+            return open;
+        }
+        found.note = (found.note.isEmpty() ? "" : found.note + "; ") + "music on YouTube" + (why.isEmpty() ? "" : " (" + why + ")");
+        if (!found.cands.isEmpty()) {
+            found.cands.get(0).say = "Playing " + speakable(q) + " on YouTube";
+        }
+        if (!wantYoutube && this.cfg.has("spotify") && found.cands.size() < 3) {
+            Candidate c = new Candidate();
+            c.label = "Spotify: " + q;
+            c.links = VoiceCore.searchLinks("spotify", q, this.cfg.searchLinks);
+            found.cands.add(c);
+        }
+        return found;
+    }
+
+    /** "Kesariya (From \"Brahmastra\")" -> "Kesariya": the part worth saying aloud. */
+    static String songName(String name) {
+        String s = name.replaceAll("\\s*[(\\[][^)\\]]*[)\\]]", "").replaceAll("\\s+-\\s+.*$", "").trim();
+        return s.isEmpty() ? name : s;
+    }
+
+    /** "tum hi ho song" -> "tum hi ho": the word song does not help find a song by name. */
+    static String withoutSongWord(String q) {
+        List<String> w = VoiceCore.words(q);
+        List<String> out = new ArrayList();
+        for (String x : w) {
+            if (!x.equals("song") && !x.equals("songs") && !x.equals("track")) {
+                out.add(x);
+            }
+        }
+        return out.isEmpty() ? q : VoiceCore.join(out, " ");
+    }
+
+    /** "lofi" is said "lo-fi"; keep everything else as it is. */
+    static String speakable(String q) {
+        return q.replaceAll("\\blofi\\b", "lo-fi").replaceAll("\\bedm\\b", "E D M");
     }
 
     private static String refWords(String str) {
@@ -1082,6 +1325,53 @@ final class VoiceAgent {
         }
         outcome.decision = NONE;
         outcome.message = "Nothing found for “" + (route.entity.isEmpty() ? query.text : route.entity) + "”";
+    }
+
+    private static final Pattern SPOKEN_SE = Pattern.compile("\\bS(\\d{1,2}) E(\\d{1,4})\\b");
+
+    /** A short line to say aloud for an outcome: "Playing lo-fi beats on Spotify", "Here's what I found". */
+    static String spoken(Outcome outcome) {
+        if (outcome.decision.equals(PLAY) && !outcome.candidates.isEmpty()) {
+            Candidate c = outcome.candidates.get(0);
+            if (!c.say.isEmpty()) {
+                return c.say;
+            }
+            if (c.title == null && c.label.startsWith("Search YouTube for")) {
+                return "Searching YouTube for " + plain(c.label.substring("Search YouTube for".length()));
+            }
+            if (c.label.startsWith("Open ")) {
+                return "Opening " + c.label.substring(5);
+            }
+            String where = c.where;
+            if (where.isEmpty() && !c.links.isEmpty() && "com.google.android.youtube.tv".equals(c.links.get(0).pkg)) {
+                where = "YouTube";
+            }
+            return "Playing " + clipWords(plain(c.label), 8) + (where.isEmpty() ? "" : " on " + where);
+        }
+        if (outcome.decision.equals(CHOOSE) || !outcome.candidates.isEmpty() || outcome.search != null
+                || (outcome.titles != null && !outcome.titles.titles.isEmpty())) {
+            return "You were watching".equals(outcome.message) ? "Here's what you were watching" : "Here's what I found";
+        }
+        return "Sorry, I couldn't find that";
+    }
+
+    /** Text fit for speech: no quote marks or separators, "S2 E3" read as words. */
+    static String plain(String str) {
+        String s = SPOKEN_SE.matcher(str).replaceAll("season $1 episode $2").replaceAll("\\bS(\\d{1,2})\\b", "season $1").replaceAll(" \\((?:19|20)\\d\\d\\)", "");
+        s = s.replace(" · ", ", ").replaceAll("[“”\"#|]", "").replaceAll("\\s+", " ").trim();
+        return s;
+    }
+
+    static String clipWords(String str, int max) {
+        String[] w = str.split(" ");
+        if (w.length <= max) {
+            return str;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < max; i++) {
+            sb.append(i == 0 ? "" : " ").append(w[i]);
+        }
+        return sb.toString().replaceAll("[,:;\\-]+$", "");
     }
 
     private static String capital(String str) {

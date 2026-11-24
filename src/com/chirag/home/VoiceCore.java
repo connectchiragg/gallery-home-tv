@@ -723,6 +723,17 @@ final class VoiceCore {
             }
             arrayList2.remove(arrayList2.size() - 1);
         }
+        // "play the movie Jawan", "watch the series Panchayat": the kind word in front is not part of the name.
+        while (arrayList2.size() > 1) {
+            boolean theKind = arrayList2.size() > 2 && ((Tok) arrayList2.get(0)).lat.equals("the") && KIND.contains(((Tok) arrayList2.get(1)).lat);
+            if (theKind) {
+                arrayList2.remove(0);
+            } else if (KIND.contains(((Tok) arrayList2.get(0)).lat)) {
+                arrayList2.remove(0);
+            } else {
+                break;
+            }
+        }
         for (i2 = 1; arrayList2.size() > i2 && set("ki", "ka", "wali", "wala", "vali", "vala").contains(((Tok) arrayList2.get(arrayList2.size() - 1)).lat); i2 = 1) {
             arrayList2.remove(arrayList2.size() - 1);
         }
@@ -740,20 +751,19 @@ final class VoiceCore {
             boolean z3 = "youtube".equals(query.app) || "spotify".equals(query.app);
             boolean z4 = i18 == arrayList2.size() - 1;
             boolean z5 = NUM_CTX.contains(str11) && !(z3 && (str11.equals("season") || str11.equals("episode")));
-            if (numValueOf != null && i18 > 0) {
-                if (z4 || z5) {
-                    if (z5) {
-                        arrayList3.remove(arrayList3.size() - 1);
-                        arrayList4.remove(arrayList4.size() - 1);
-                    }
-                    if (z3 || !(str11.equals("season") || str11.equals("episode"))) {
-                        arrayList3.add(String.valueOf(numValueOf));
-                        arrayList4.add(String.valueOf(numValueOf));
-                    } else if (str11.equals("season")) {
-                        query.season = numValueOf.intValue();
-                    }
+            if (numValueOf != null && i18 > 0 && (z4 || z5)) {
+                if (z5) {
+                    arrayList3.remove(arrayList3.size() - 1);
+                    arrayList4.remove(arrayList4.size() - 1);
+                }
+                if (z3 || !(str11.equals("season") || str11.equals("episode"))) {
+                    arrayList3.add(String.valueOf(numValueOf));
+                    arrayList4.add(String.valueOf(numValueOf));
+                } else if (str11.equals("season")) {
+                    query.season = numValueOf.intValue();
                 }
                 i18++;
+                continue;
             }
             arrayList3.add(str10);
             arrayList4.add(((Tok) arrayList2.get(i18)).orig);
@@ -1470,6 +1480,19 @@ final class VoiceCore {
         return arrayList;
     }
 
+    /**
+     * Links for one Spotify track. On Spotify for Android TV a spotify:track: link starts playing the track (and
+     * Spotify's autoplay carries on with similar songs); playlist and search links only open a page, and the app
+     * ignores play-from-search from other apps (tested on the Skyworth Google TV, Spotify 9.1.84).
+     */
+    static List<Link> spotifyTrackLinks(String trackId, String q, Map<String, String> map) {
+        ArrayList<Link> links = new ArrayList();
+        App app = app("spotify");
+        links.add(new Link("VIEW", app.pkg, "spotify:track:" + trackId, "play"));
+        links.addAll(searchLinks("spotify", q, map));
+        return links;
+    }
+
     static List<Link> titleLinks(Title title, String str, boolean z, Map<String, String> map) {
         ArrayList arrayList = new ArrayList();
         App app = app(str);
@@ -1662,6 +1685,13 @@ final class VoiceCore {
         int endSilenceMs = 650;
         int shortEndSilenceMs = 900;
         int shortSpeechMs = 1000;
+        /** Audio kept in front of the first loud frame, so a soft or early first syllable is not cut. */
+        int preRollMs = 300;
+        /**
+         * After the first live audio, frames that may hold the ready chime (played at that moment) do not count as
+         * speech or noise floor. Their audio is still kept and the pre-roll reaches back into them.
+         */
+        int guardMs = 40;
         private final ByteArrayOutputStream pcm = new ByteArrayOutputStream();
         private int phase = LISTENING;
         private int liveFrame = -1;
@@ -1720,7 +1750,7 @@ final class VoiceCore {
             this.frames = i2 + 1;
             this.peak = Math.max(this.peak, i);
             double d = 0.0d;
-            this.level = this.phase == 2 ? Math.max(0.0d, Math.min(1.0d, ((Math.log10(Math.max(dSqrt, 1.0d)) * 20.0d) - 30.0d) / 50.0d)) : 0.0d;
+            this.level = this.phase != 0 ? Math.max(0.0d, Math.min(1.0d, ((Math.log10(Math.max(dSqrt, 1.0d)) * 20.0d) - 30.0d) / 50.0d)) : 0.0d;
             if (this.phase == 0) {
                 if (i > 4) {
                     this.phase = 1;
@@ -1733,7 +1763,7 @@ final class VoiceCore {
                     return DEAD_INPUT;
                 }
             }
-            boolean z2 = i2 < this.liveFrame + 2;
+            boolean z2 = i2 < this.liveFrame + Math.max(2, this.guardMs / 20);
             if (!z2) {
                 this.floor = learn(dSqrt);
             }
@@ -1777,9 +1807,9 @@ final class VoiceCore {
                         this.lastSpeech = i2;
                         this.segMax = this.runMax;
                         this.segLow = this.runLow;
-                    } else {
-                        this.loudRun = LISTENING;
                     }
+                    // A shorter loud run is kept going: someone who started talking just before the mic settled
+                    // carries on into the open phase and is counted from the first loud frame.
                 }
                 return LISTENING;
             }
@@ -1918,7 +1948,7 @@ final class VoiceCore {
                 return VoiceCore.wav(new byte[LISTENING], this.rate);
             }
             int i = this.frame * 2;
-            int iMax = Math.max(Math.max(LISTENING, this.liveFrame + DEAD_INPUT), this.speechStart - 10);
+            int iMax = Math.max(Math.max(LISTENING, this.liveFrame + 1), this.speechStart - (this.preRollMs / 20));
             return VoiceCore.wav(Arrays.copyOfRange(byteArray, iMax * i, Math.max(iMax, Math.min(this.frames, this.lastSpeech + 1 + FLOOR_PERCENTILE)) * i), this.rate);
         }
     }

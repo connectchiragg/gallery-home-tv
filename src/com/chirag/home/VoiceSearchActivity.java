@@ -83,6 +83,10 @@ public class VoiceSearchActivity extends Activity {
     VoiceAgent.Outcome pendingOutcome;
     Runnable pendingPlay;
     SpeechRecognizer recognizer;
+    /** Spoken replies (voice.json "speak"); null when off. */
+    VoiceSpeaker speaker;
+    /** An app was opened from here: let the last reply finish instead of cutting it. */
+    boolean handedOff;
     View rootView;
     View scrim;
     String soft;
@@ -402,6 +406,10 @@ public class VoiceSearchActivity extends Activity {
         this.worker.shutdownNow();
         VoiceArt.clear();
         VoiceChime.release();
+        if (this.speaker != null) {
+            this.speaker.release(this.handedOff);
+            this.speaker = null;
+        }
         if (this.recognizer != null) {
             this.recognizer.destroy();
             this.recognizer = null;
@@ -411,6 +419,9 @@ public class VoiceSearchActivity extends Activity {
 
     @Override // android.app.Activity, android.view.KeyEvent.Callback
     public boolean onKeyDown(int i, KeyEvent keyEvent) {
+        if (i == 4) {
+            hush();
+        }
         if (this.pendingPlay != null && i == 4) {
             dropPending();
             choices(this.pendingOutcome);
@@ -497,6 +508,18 @@ public class VoiceSearchActivity extends Activity {
                 string = e.getMessage();
             }
         }
+        this.cfg.installed = new java.util.HashSet<>();
+        for (VoiceCore.App app : VoiceCore.APPS) {
+            if (app.pkg != null && installed(app.pkg)) {
+                this.cfg.installed.add(app.pkg);
+            }
+        }
+        if (this.cfg.speak && this.speaker == null) {
+            this.speaker = new VoiceSpeaker(this);
+        } else if (!this.cfg.speak && this.speaker != null) {
+            this.speaker.release(false);
+            this.speaker = null;
+        }
         this.client = new VoiceClient(this.cfg, VoiceClient.REAL);
         this.hint.setText(string != null ? string + "  (copy voice.example.json there and add your keys)" : "Mic button: speak again · Back: close");
         this.hint.setVisibility(string == null ? 8 : 0);
@@ -543,6 +566,7 @@ public class VoiceSearchActivity extends Activity {
         }
         this.closing = true;
         Log.i(TAG, "closing: " + str);
+        hush();
         cancel();
         this.ui.removeCallbacks(this.autoClose);
         this.glow.mode(0);
@@ -567,16 +591,26 @@ public class VoiceSearchActivity extends Activity {
             Log.i(TAG, "missed (" + str + "): listening again " + this.misses + "/" + RELISTEN);
             this.soft = SORRY;
             show("Getting the mic ready…", DIM, false);
-            VoiceChime.play(RELISTEN);
             final int i = this.gen;
-            this.ui.postDelayed(new Runnable() { // from class: com.chirag.home.VoiceSearchActivity.7
-                @Override // java.lang.Runnable
+            final Runnable again = new Runnable() {
+                boolean ran;
+
+                @Override
                 public void run() {
-                    if (VoiceSearchActivity.this.gen == i) {
+                    if (!ran && VoiceSearchActivity.this.gen == i) {
+                        ran = true;
                         VoiceSearchActivity.this.begin();
                     }
                 }
-            }, 280L);
+            };
+            if (this.speaker != null) {
+                // Listen again only after the apology is said, so the mic does not hear it (or the user over it).
+                this.speaker.say("Sorry, I didn't catch that", again);
+                this.ui.postDelayed(again, 3500L);
+            } else {
+                VoiceChime.play(RELISTEN);
+                this.ui.postDelayed(again, 280L);
+            }
             return;
         }
         dismiss("missed (" + str + ") after " + RELISTEN + " re-listens");
@@ -594,11 +628,24 @@ public class VoiceSearchActivity extends Activity {
     void listen() {
         this.misses = 0;
         this.soft = null;
-        VoiceChime.play(0);
         begin();
     }
 
+    /** Stops a spoken reply (Back, a new listen, closing). */
+    void hush() {
+        if (this.speaker != null) {
+            this.speaker.stop();
+        }
+    }
+
+    void say(String text) {
+        if (this.speaker != null) {
+            this.speaker.say(text, null);
+        }
+    }
+
     void begin() {
+        hush();
         cancel();
         clearResults();
         said("");
@@ -646,9 +693,12 @@ public class VoiceSearchActivity extends Activity {
             public void run() {
                 int minBufferSize = AudioRecord.getMinBufferSize(VoiceSearchActivity.RATE, 16, VoiceSearchActivity.RELISTEN);
                 final VoiceCore.Endpointer endpointer = new VoiceCore.Endpointer(VoiceSearchActivity.RATE);
+                // The ready chime plays the moment live audio arrives; keep it out of speech detection.
+                endpointer.guardMs = VoiceChime.ENABLED ? 260 : 40;
                 long jElapsedRealtime = SystemClock.elapsedRealtime();
                 long j = -1;
                 long j2 = -1;
+                long j3 = -1;
                 int iFeed = 0;
                 String failure = null;
                 AudioRecord audioRecord = null;
@@ -672,9 +722,12 @@ public class VoiceSearchActivity extends Activity {
                             iFeed = endpointer.feed(sArr, i4);
                             VoiceSearchActivity.this.speechOn = endpointer.heardSpeech();
                             if (j < 0 && endpointer.phase() != 0) {
+                                // The mic is delivering real audio now (the first non-silent buffer), and from here
+                                // every sample is kept. Only now ask for speech: "Speak now" and the ready chime.
+                                // Asking earlier made people talk while a Bluetooth remote's mic was still waking up.
                                 j = jElapsedRealtime2;
-                            }
-                            if (j2 < 0 && endpointer.phase() == VoiceSearchActivity.RELISTEN) {
+                                j2 = jElapsedRealtime2;
+                                VoiceChime.play(0);
                                 VoiceSearchActivity.this.ui.post(new Runnable() { // from class: com.chirag.home.VoiceSearchActivity.8.1
                                     @Override // java.lang.Runnable
                                     public void run() {
@@ -683,7 +736,9 @@ public class VoiceSearchActivity extends Activity {
                                         }
                                     }
                                 });
-                                j2 = jElapsedRealtime2;
+                            }
+                            if (j3 < 0 && endpointer.phase() == VoiceSearchActivity.RELISTEN) {
+                                j3 = jElapsedRealtime2;
                             }
                             final float f = (float) endpointer.level;
                             VoiceSearchActivity.this.ui.post(new Runnable() { // from class: com.chirag.home.VoiceSearchActivity.8.2
@@ -731,7 +786,7 @@ public class VoiceSearchActivity extends Activity {
                 } else {
                     strReason = endpointer.reason();
                 }
-                Log.i(VoiceSearchActivity.TAG, "capture end=" + strReason + " openToLive=" + (j < 0 ? -1L : j - jElapsedRealtime) + "ms openToSpeakNow=" + (j2 < 0 ? -1L : j2 - jElapsedRealtime) + "ms speakNowToSpeech=" + endpointer.firstSpeechMs() + "ms speech=" + endpointer.utteranceMs() + "ms (loud " + endpointer.speechMs() + "ms) total=" + endpointer.millis() + "ms peak=" + endpointer.peak() + " floor=" + endpointer.noiseFloor() + " enter=" + endpointer.enterRms() + " endDelay=" + endpointer.endDelayMs() + "ms" + (str != null ? " failure=" + str : ""));
+                Log.i(VoiceSearchActivity.TAG, "capture end=" + strReason + " openToLive=" + (j < 0 ? -1L : j - jElapsedRealtime) + "ms openToSpeakNow=" + (j2 < 0 ? -1L : j2 - jElapsedRealtime) + "ms openToSettled=" + (j3 < 0 ? -1L : j3 - jElapsedRealtime) + "ms speakNowToSpeech=" + endpointer.firstSpeechMs() + "ms speech=" + endpointer.utteranceMs() + "ms (loud " + endpointer.speechMs() + "ms) total=" + endpointer.millis() + "ms peak=" + endpointer.peak() + " floor=" + endpointer.noiseFloor() + " enter=" + endpointer.enterRms() + " endDelay=" + endpointer.endDelayMs() + "ms" + (str != null ? " failure=" + str : ""));
                 if (VoiceSearchActivity.this.gen != i) {
                     return;
                 }
@@ -811,13 +866,17 @@ public class VoiceSearchActivity extends Activity {
 
     void listenSystem() {
         final int i = this.gen;
-        show("Listening…", TEXT, true);
+        show("Getting the mic ready…", DIM, false);
         if (this.recognizer == null) {
             this.recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         }
         this.recognizer.setRecognitionListener(new RecognitionListener() { // from class: com.chirag.home.VoiceSearchActivity.10
             @Override // android.speech.RecognitionListener
             public void onReadyForSpeech(Bundle bundle) {
+                if (VoiceSearchActivity.this.gen == i) {
+                    VoiceChime.play(0);
+                    VoiceSearchActivity.this.show("Speak now", VoiceSearchActivity.TEXT, true);
+                }
             }
 
             @Override // android.speech.RecognitionListener
@@ -925,6 +984,7 @@ public class VoiceSearchActivity extends Activity {
                         public void run() {
                             if (VoiceSearchActivity.this.gen == i) {
                                 VoiceSearchActivity.this.fail("I couldn’t look that up just now", String.valueOf(e.getMessage()));
+                                VoiceSearchActivity.this.say("Sorry, I couldn't look that up just now");
                                 VoiceSearchActivity.this.addFallbackRow(queryUnderstand);
                             }
                         }
@@ -953,10 +1013,13 @@ public class VoiceSearchActivity extends Activity {
             };
             show(outcome.line.isEmpty() ? candidate.line() : outcome.line, TEXT, false);
             VoiceChime.play(1);
+            // Said alongside the 2 s countdown, never in front of it: the countdown starts now regardless.
             this.ui.postDelayed(this.pendingPlay, RESTART_GUARD_MS);
+            say(VoiceAgent.spoken(outcome));
             return;
         }
         choices(outcome);
+        say(VoiceAgent.spoken(outcome));
     }
 
     void dropPending() {
@@ -1168,6 +1231,7 @@ public class VoiceSearchActivity extends Activity {
             try {
                 startActivity(leanbackLaunchIntentForPackage);
                 Log.i(TAG, "opened " + link);
+                this.handedOff = true;
                 ArtStore.launched(this, link, title);
                 finish();
                 return;

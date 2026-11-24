@@ -36,6 +36,10 @@
         <intent>
             <action android:name="android.speech.RecognitionService"/>
         </intent>
+        <!-- Spoken replies: TextToSpeech can only bind an engine it can see (Android 11+). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
     <application
         android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"

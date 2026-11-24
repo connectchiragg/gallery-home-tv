@@ -18,7 +18,8 @@ and it is meant to be read, changed and rebuilt.
 | **Continue watching** | Built from the TV's own media sessions (YouTube, Netflix, Prime Video, Apple TV, JioHotstar, Crunchyroll): last 30 days, one card per series (newest episode), episode stills from TVmaze where available, exact-second resume where the app allows it. Long-press OK on a card to remove it. |
 | **Spotify widget** | A small glass capsule under the painting label while Spotify is playing or paused: art, title, previous / play-pause / next and a clear button. |
 | **Dark screen** | The moon button fades everything to black except a dimmed Spotify widget: music with a black TV. |
-| **Voice search** | Press the remote's mic: Groq Whisper speech-to-text, then a small agent (understand, route, resolve, score, decide) using JustWatch, YouTube and your watch history. Confident answers auto-play after 2 s (Back cancels), otherwise up to 3 result cards. Falls back to YouTube when nothing on your apps matches. |
+| **Voice search** | Press the remote's mic: Groq Whisper speech-to-text, then a small agent (understand, route, resolve, score, decide) using JustWatch, YouTube and your watch history. Confident answers auto-play after 2 s (Back cancels), otherwise up to 3 result cards. Falls back to YouTube when nothing on your apps matches. "Speak now" and the chime come only once the remote's mic is delivering audio. Replies are spoken aloud with the TV's own text-to-speech (`"speak": false` in `voice.json` turns that off). |
+| **Music by voice** | "Play some lo-fi", "sad Hindi songs", "90s Bollywood hits", "Kesariya", "Coldplay on YouTube". Spotify is the default, YouTube when you name it. Spotify on the TV only starts from a track link, so add a free Spotify Web API app's `spotify_client_id` / `spotify_client_secret` ([developer.spotify.com](https://developer.spotify.com/dashboard)) to `voice.json`; without them music plays from YouTube. |
 | **Inputs and PlayStation** | Inputs screen for HDMI sources; a PlayStation button switches to the console's input. |
 | **AirPlay helper** | A tiny listener that wakes the AirScreen receiver app only when a Mac or iPhone wants to mirror, and closes it after. |
 | **Housekeeping** | One minute after you return Home, apps you left are closed (anything playing is spared) through the TV's own network-adb, which you approve once on the TV. |
@@ -85,7 +86,9 @@ To go back to the stock launcher: Settings → Apps → Default apps → Home ap
 - **Profile auto-pick:** `ProfileService.PROFILES` picks a named profile in apps that ask "Who's
   watching?". Put your own profile name there.
 - **AirPlay name:** `AirWake.NAME`.
-- **Voice:** models and thresholds in `voice.json` (see `voice.example.json`).
+- **Voice:** models and thresholds in `voice.json` (see `voice.example.json`). Test the voice agent on
+  a Mac against the real services with `tools/voice-test/run.sh` (32 sample requests; add your own to
+  `tools/voice-test/cases.tsv`), or `tools/voice-test/run.sh --selftest` for offline checks.
 
 ## A note on this source
 
@@ -98,7 +101,7 @@ contribution.
 ## Privacy
 
 Nothing leaves the TV except what a feature needs: voice audio and queries go to Groq when you use
-voice search, title lookups go to JustWatch, YouTube and TVmaze. Watch history stays on the TV. There
+voice search, title lookups go to JustWatch, YouTube and TVmaze, music lookups to Spotify (when you add its keys). Watch history stays on the TV. There
 is no analytics.
 
 ## Credits
