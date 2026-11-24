@@ -51,6 +51,10 @@ public class MainActivity extends Activity {
     static final long CLOSE_AFTER_MS = 60000;
     static final long DARK_FADE_MS = 1000;
     static final int HEAD_H = 262;
+    /** Gallery mode: after this long with no remote key, only the painting and its label stay. */
+    static final long IDLE_MS = 60_000;
+    static final long IDLE_FADE_MS = 1200;
+    static final long WAKE_FADE_MS = 400;
     static final long MONTH = 2592000000L;
     static final float STORY_COLUMN = 0.39f;
     static final int STORY_GOLD = -1848426;
@@ -95,6 +99,20 @@ public class MainActivity extends Activity {
     };
     final List<View> faded = new ArrayList();
     int focusCard = -1;
+
+    // Gallery mode state: overlay views faded out, the focus to give back, and the key that woke
+    // the screen (its repeats and key-up are swallowed too, so the wake press does nothing else).
+    boolean idle;
+    boolean resumed;
+    final List<View> idleFaded = new ArrayList<>();
+    View idleFocus;
+    int wakeKey = KeyEvent.KEYCODE_UNKNOWN;
+    final Runnable sleep = new Runnable() {
+        @Override
+        public void run() {
+            enterIdle();
+        }
+    };
 
     void updateHeader() {
         Date date = new Date();
@@ -188,6 +206,8 @@ public class MainActivity extends Activity {
     @Override // android.app.Activity
     protected void onResume() {
         super.onResume();
+        this.resumed = true;
+        this.wakeKey = KeyEvent.KEYCODE_UNKNOWN;
         if (getIntent() != null && getIntent().getBooleanExtra("undo_remove", false)) {
             getIntent().removeExtra("undo_remove");
             HistoryDb.get(this).restoreLastDismissed();
@@ -218,7 +238,9 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
         }
         this.showMore = false;
+        leaveIdle(0);
         build();
+        armIdle();
         this.h.removeCallbacks(this.tick);
         this.h.postDelayed(this.tick, 15000L);
         this.h.removeCallbacks(this.closeApps);
@@ -297,12 +319,121 @@ public class MainActivity extends Activity {
         super.onPause();
         this.nowPlaying.stop();
         leaveDark(false);
+        this.resumed = false;
+        this.h.removeCallbacks(this.sleep);
+        leaveIdle(0);
+        this.wakeKey = KeyEvent.KEYCODE_UNKNOWN;
         this.h.removeCallbacks(this.closeApps);
         if (HomeKeyService.inst != null) {
             HomeKeyService.inst.filterKeys(false);
         }
         this.stage.pause();
         this.h.removeCallbacks(this.tick);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code == this.wakeKey && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            this.wakeKey = KeyEvent.KEYCODE_UNKNOWN; // a fresh press: the waking one's key-up was lost
+        }
+        if (this.wakeKey != KeyEvent.KEYCODE_UNKNOWN && code == this.wakeKey) {
+            // Rest of the press that woke the screen: repeats and the key-up (which is where OK
+            // clicks and Back fires) must not reach the views.
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                this.wakeKey = KeyEvent.KEYCODE_UNKNOWN;
+            }
+            armIdle();
+            return true;
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            armIdle();
+            if (this.idle) {
+                leaveIdle(WAKE_FADE_MS);
+                if (isVolumeKey(code)) {
+                    return super.dispatchKeyEvent(event);
+                }
+                this.wakeKey = code;
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    static boolean isVolumeKey(int code) {
+        return code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
+                || code == KeyEvent.KEYCODE_VOLUME_MUTE;
+    }
+
+    /** (Re)start the idle countdown. Only runs while resumed: onPause removes it. */
+    void armIdle() {
+        this.h.removeCallbacks(this.sleep);
+        if (this.resumed) {
+            this.h.postDelayed(this.sleep, IDLE_MS);
+        }
+    }
+
+    /** Fade every overlay part except the painting's label; the wall keeps rotating underneath. */
+    void enterIdle() {
+        if (this.idle || !this.resumed) {
+            return;
+        }
+        if (this.story != null || this.dark != null || this.dialog != null) {
+            armIdle();
+            return;
+        }
+        this.idle = true;
+        this.wakeKey = KeyEvent.KEYCODE_UNKNOWN;
+        this.idleFocus = getCurrentFocus();
+        this.idleFaded.clear();
+        View head = this.caption == null ? null : (View) this.caption.getParent();
+        View capsule = this.nowPlaying.view();
+        for (int i = 0; i < this.root.getChildCount(); i++) {
+            View child = this.root.getChildAt(i);
+            if (child == head) {
+                ViewGroup group = (ViewGroup) head;
+                for (int j = 0; j < group.getChildCount(); j++) {
+                    View part = group.getChildAt(j);
+                    if (part != this.caption && part != capsule) {
+                        this.idleFaded.add(part);
+                    }
+                }
+            } else {
+                this.idleFaded.add(child);
+            }
+        }
+        AccelerateDecelerateInterpolator ease = new AccelerateDecelerateInterpolator();
+        for (View v : this.idleFaded) {
+            v.animate().cancel();
+            v.animate().alpha(0.0f).setStartDelay(0L).setDuration(IDLE_FADE_MS).setInterpolator(ease).withEndAction(null).start();
+        }
+        this.nowPlaying.setIdle(true, IDLE_FADE_MS);
+        Log.i("Home", "gallery mode on");
+    }
+
+    /** Bring the overlay back over {@code ms} (0 = at once) and hand focus back to where it was. */
+    void leaveIdle(long ms) {
+        if (!this.idle) {
+            return;
+        }
+        this.idle = false;
+        AccelerateDecelerateInterpolator ease = new AccelerateDecelerateInterpolator();
+        for (View v : this.idleFaded) {
+            v.animate().cancel();
+            if (ms <= 0) {
+                v.setAlpha(1.0f);
+            } else {
+                v.animate().alpha(1.0f).setStartDelay(0L).setDuration(ms).setInterpolator(ease).withEndAction(null).start();
+            }
+        }
+        this.idleFaded.clear();
+        this.nowPlaying.setIdle(false, ms);
+        View f = this.idleFocus;
+        this.idleFocus = null;
+        if (ms > 0 && f != null && f.isAttachedToWindow() && f.isShown() && getCurrentFocus() != f) {
+            f.requestFocus();
+        }
+        Log.i("Home", "gallery mode off");
     }
 
     void enterDark() {

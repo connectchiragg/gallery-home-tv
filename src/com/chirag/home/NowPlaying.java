@@ -64,6 +64,7 @@ final class NowPlaying {
     private TextView caption;
     private TextView clock;
     private boolean dimmed;
+    private boolean idle;
     private long duration;
     private long eqUntil;
     private int extra;
@@ -122,6 +123,49 @@ final class NowPlaying {
 
     NowPlaying(Activity activity) {
         this.a = activity;
+    }
+
+    /** Alpha the capsule settles at when shown: hidden in gallery mode, faint on the dark screen. */
+    private float restAlpha() {
+        if (this.idle) {
+            return 0.0f;
+        }
+        return this.dimmed ? DIM_ALPHA : 1.0f;
+    }
+
+    /**
+     * Gallery mode (MainActivity's idle screen): fade the capsule out, or back in. While idle it is
+     * left INVISIBLE (still laid out, so nothing shifts) so its equalizer stops redrawing.
+     */
+    void setIdle(boolean idle, long ms) {
+        if (idle == this.idle) {
+            return;
+        }
+        this.idle = idle;
+        final Pill pill = this.home;
+        if (pill == null || !this.shown) {
+            return;
+        }
+        pill.animate().cancel();
+        pill.setTranslationY(0.0f);
+        if (ms <= 0) {
+            pill.setAlpha(restAlpha());
+            pill.setVisibility(idle ? 4 : 0);
+            return;
+        }
+        if (!idle) {
+            pill.setVisibility(0);
+        }
+        pill.animate().alpha(restAlpha()).setStartDelay(0L).setDuration(ms)
+                .setInterpolator(new AccelerateDecelerateInterpolator())
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (NowPlaying.this.idle && NowPlaying.this.shown && NowPlaying.this.home == pill) {
+                            pill.setVisibility(4);
+                        }
+                    }
+                }).start();
     }
 
     boolean isShowing() {
@@ -598,7 +642,7 @@ final class NowPlaying {
         float f = z ? CLOCK_SCALE : 1.0f;
         float f2 = z ? -Ui.dp(this.a, LIFT) : 0.0f;
         if (z) {
-            pill.setVisibility(0);
+            pill.setVisibility(this.idle ? 4 : 0);
             pill.setNextFocusUpId(this.caption.getId());
             this.caption.setNextFocusDownId(pill.getId());
             Iterator<View> it = this.below.iterator();
@@ -608,7 +652,7 @@ final class NowPlaying {
             resizeHead(this.headH0 + this.extra, z2);
             pill.setAlpha(0.0f);
             pill.setTranslationY(Ui.dp(this.a, 6));
-            pill.animate().alpha(this.dimmed ? DIM_ALPHA : 1.0f).translationY(0.0f).setStartDelay(z2 ? 120L : 60L).setDuration(280L).setInterpolator(new DecelerateInterpolator()).withEndAction(null).start();
+            pill.animate().alpha(restAlpha()).translationY(0.0f).setStartDelay(z2 ? 120L : 60L).setDuration(280L).setInterpolator(new DecelerateInterpolator()).withEndAction(null).start();
         } else {
             this.caption.setNextFocusDownId(this.capDown);
             Iterator<View> it2 = this.below.iterator();
