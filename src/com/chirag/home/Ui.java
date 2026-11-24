@@ -1115,7 +1115,67 @@ final class Ui {
             } catch (Exception e) {
             }
         }
+        if (findAndOpen(context, item)) {
+            return;
+        }
         launch(context, launchIntent(context, item.pkg));
+    }
+
+    /**
+     * No stored link for this card (Apple TV and a few other apps don't report a usable id): look the title up
+     * on JustWatch now, open the app's own page for it, and keep the link on the row so the next press is instant.
+     * Falls back to opening the app when nothing sure is found. Returns false when no lookup applies.
+     */
+    static boolean findAndOpen(final Context context, final HistoryDb.Item item) {
+        final VoiceCore.App app = VoiceCore.appForPkg(item.pkg);
+        if (app == null || item.title.isEmpty()) {
+            return false;
+        }
+        final Context appContext = context.getApplicationContext();
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        Lens.EXEC.execute(new Runnable() {
+            public void run() {
+                Intent found = null;
+                try {
+                    VoiceClient.Config config = VoiceClient.Config.read(new java.io.File(appContext.getExternalFilesDir(null), "voice.json"));
+                    if (config != null && config.justwatch) {
+                        VoiceClient client = new VoiceClient(config, VoiceClient.REAL);
+                        VoiceCore.Title title = VoiceCore.artMatch(app.key, item.title, client.justWatch(item.title), false);
+                        if (title != null) {
+                            for (VoiceCore.Link link : VoiceCore.titleLinks(title, app.key, true, config.searchLinks)) {
+                                if ("VIEW".equals(link.action) && link.uri != null && link.uri.contains("://")) {
+                                    String uri = link.uri;
+                                    // Apple TV's show links point at episode 1 (and would start it); its show page has the "Continue" button.
+                                    java.util.regex.Matcher show = java.util.regex.Pattern.compile("showId=(umc\\.cmc\\.[a-z0-9]+)").matcher(uri);
+                                    if (app.key.equals("appletv") && show.find()) uri = "https://tv.apple.com/in/show/x/" + show.group(1);
+                                    HistoryDb.get(appContext).setMediaId(item.pkg, item.title, item.subtitle == null ? "" : item.subtitle, uri);
+                                    found = view(item.pkg, uri);
+                                    for (java.util.Map.Entry<String, String> e : link.extras.entrySet()) found.putExtra(e.getKey(), e.getValue());
+                                    break;
+                                }
+                            }
+                        }
+                        android.util.Log.i("WatchHistory", "card link for \"" + item.title + "\" (" + app.key + "): " + (found == null ? "none, opening the app" : found.getData()));
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("WatchHistory", "card link lookup failed for " + item.title + ": " + e.getMessage());
+                }
+                final Intent open = found;
+                main.post(new Runnable() {
+                    public void run() {
+                        if (open != null) {
+                            try {
+                                appContext.startActivity(open.addFlags(268435456));
+                                return;
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        launch(context, launchIntent(context, item.pkg));
+                    }
+                });
+            }
+        });
+        return true;
     }
 
     static Intent resumeIntent(HistoryDb.Item item) {

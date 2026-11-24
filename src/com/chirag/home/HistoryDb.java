@@ -410,7 +410,8 @@ public class HistoryDb extends SQLiteOpenHelper {
                 if (item.openedTs > 0) {
                     hashSet2.add(item.pkg);
                 }
-                if (!item.title.isEmpty() || !hashSet2.contains(item.pkg)) {
+                // A row with no title only says "this app was used": its card could open nothing but the app's home page, so Continue watching leaves it out.
+                if (!item.title.isEmpty() || (!z && !hashSet2.contains(item.pkg))) {
                     if (!z || item.dismissedTs <= 0) {
                         if (!z || !item.finished()) {
                             if (!z || item.title.isEmpty() || ArtStore.episode(item.subtitle) == null || hashSet.add(item.pkg + "|" + item.title)) {

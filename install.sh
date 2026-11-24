@@ -14,5 +14,6 @@ a settings put secure accessibility_enabled 1
 # notification access: reads media sessions for Continue watching and the now-playing widget
 a cmd notification allow_listener com.chirag.home/com.chirag.home.WatchListener
 a pm grant com.chirag.home android.permission.RECORD_AUDIO || true
+a mkdir -p /sdcard/Android/data/com.chirag.home/files
 [ -f voice.json ] && adb -s "$D" push voice.json /sdcard/Android/data/com.chirag.home/files/voice.json >/dev/null && echo "pushed voice.json"
 echo "installed; press Home on the TV"
