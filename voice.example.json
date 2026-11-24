@@ -12,5 +12,8 @@
   "web_search": true,
   "screen_read": false,
   "max_results": 3,
-  "auto_play_confidence": 0.85
+  "auto_play_confidence": 0.85,
+  "speak": true,
+  "spotify_client_id": "",
+  "spotify_client_secret": ""
 }

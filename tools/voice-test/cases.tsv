@@ -1,0 +1,35 @@
+# query	expected route(s, | = any)	expected app	what it checks
+# expected app: spotify, youtube, netflix, prime, hotstar or any; spotify* = Spotify when spotify_client_id/secret are
+# in voice.json (it can then start the track), otherwise the music must play from YouTube.
+play some lo-fi	play_music	spotify*	genre, Spotify default
+play sad Hindi songs	play_music	spotify*	mood + language
+90s Bollywood hits	play_music	spotify*	era + genre, no verb
+play something chill for studying	play_music	spotify*	mood with no music word
+Arijit Singh songs on Spotify	play_music	spotify	artist, app named
+play Coldplay on YouTube	play_music|youtube_search	youtube	artist, YouTube named
+workout music	play_music	spotify*	activity
+play Kesariya	play_music	spotify*	specific song, no music word
+romantic songs chalao	play_music	spotify*	Hinglish verb
+purane gaane lagao	play_music	spotify*	Hinglish: old songs
+play Punjabi party songs	play_music	spotify*	language + mood
+play jazz on youtube	play_music|youtube_search	youtube	genre on YouTube
+play the album Parachutes by Coldplay	play_music	spotify*	album
+AR Rahman ke gaane	play_music	spotify*	Hinglish artist
+play Tum Hi Ho song	play_music	spotify*	song + music word
+play relaxing music for sleep	play_music	spotify*	activity/mood
+play Shape of You	play_music	spotify*	English song, no music word
+devotional bhajan lagao	play_music	spotify*	genre in Hinglish
+play Pasoori	play_music	spotify*	song title
+play Panchayat	play_title|resume	prime	series
+Panchayat season 2 episode 3	play_title	prime	episode
+watch Stranger Things on Netflix	play_title	netflix	app named
+play the movie Jawan	play_title	netflix	film
+Mirzapur chalao	play_title	prime	Hinglish verb
+play Kota Factory season 3	play_title	netflix	season
+next episode	resume	prime	history: next episode
+continue watching	resume	prime	history: continue
+latest video by MrBeast	youtube_latest	youtube	channel latest
+Dhruv Rathee ka naya video	youtube_latest	youtube	Hinglish channel latest
+open Netflix	open_app	netflix	open app
+how to make pasta video	youtube_search	youtube	how-to video
+play Animal movie	play_title	netflix	film with kind word
