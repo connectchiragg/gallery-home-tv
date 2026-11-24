@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to the TV as /sdcard/Android/data/com.chirag.home/files/voice.json and add your own keys. Never commit the real file.",
+  "groq_key": "YOUR_GROQ_API_KEY",
+  "groq_stt_model": "whisper-large-v3",
+  "groq_router_model": "openai/gpt-oss-20b",
+  "groq_vision_model": "qwen/qwen3.8-27b",
+  "language": "en",
+  "region": "IN",
+  "stt_prompt": "Movie, show and YouTube channel names, often Hindi or Hinglish.",
+  "justwatch": true,
+  "llm": true,
+  "web_search": true,
+  "screen_read": false,
+  "max_results": 3,
+  "auto_play_confidence": 0.85
+}

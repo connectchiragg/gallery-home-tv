@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_desc">Lets this home screen start AirPlay when a device asks to mirror. Reads no screen content and no key presses.</string>
+    <string name="profile_desc">Picks your default profile on the \"Who\'s watching?\" screen of Crunchyroll, and presses AirScreen\'s dialog buttons that a remote can\'t reach; for that it reads only those two apps\' screens and stores nothing. If you turn on \"screen_read\" in voice.json, it also takes an occasional screenshot of Prime Video (when you pause) and of Apple TV\'s home screen (when you open it) and sends it to Groq\'s vision model to read the title, so Continue watching can show what you were watching. Screenshots are never saved and are never taken of other apps.</string>
+</resources>

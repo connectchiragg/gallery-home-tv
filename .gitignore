@@ -1,0 +1,7 @@
+out/
+*.apk
+*.keystore
+voice.json
+out_build.log
+.DS_Store
+javac.*.args
