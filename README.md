@@ -81,6 +81,8 @@ To go back to the stock launcher: Settings → Apps → Default apps → Home ap
 - **Paintings:** add JPEGs (1280×720) to `paintings/` and entries to `catalog.json`; rotation speed is
   `Art.PERIOD_MS`, fade length `Art.FADE_MS`.
 - **Dock apps:** `MainActivity.FAVORITES`.
+- **Gallery mode:** after `MainActivity.IDLE_MS` (60 s) with no remote key, everything but the painting
+  and its label fades out; any key brings it back.
 - **Glass look:** constants at the top of `Glass.java` (bezel width, depth, refraction index).
 - **Profile auto-pick:** `ProfileService.PROFILES` picks a named profile in apps that ask "Who's
   watching?". Put your own profile name there.
