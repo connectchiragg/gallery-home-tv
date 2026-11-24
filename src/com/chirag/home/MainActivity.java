@@ -238,6 +238,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
         }
         this.showMore = false;
+        if (this.idle) Log.i("Home", "gallery mode ended by onResume");
         leaveIdle(0);
         build();
         armIdle();
@@ -321,6 +322,7 @@ public class MainActivity extends Activity {
         leaveDark(false);
         this.resumed = false;
         this.h.removeCallbacks(this.sleep);
+        if (this.idle) Log.i("Home", "gallery mode ended by onPause");
         leaveIdle(0);
         this.wakeKey = KeyEvent.KEYCODE_UNKNOWN;
         this.h.removeCallbacks(this.closeApps);
@@ -349,6 +351,7 @@ public class MainActivity extends Activity {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             armIdle();
             if (this.idle) {
+                Log.i("Home", "gallery mode woken by key " + KeyEvent.keyCodeToString(code) + " from device " + event.getDeviceId() + " source 0x" + Integer.toHexString(event.getSource()));
                 leaveIdle(WAKE_FADE_MS);
                 if (isVolumeKey(code)) {
                     return super.dispatchKeyEvent(event);
