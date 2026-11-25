@@ -648,6 +648,9 @@ public class VoiceSearchActivity extends Activity {
         }
     }
 
+    /** The longest an auto-play waits for its spoken reply to finish. */
+    static final long SPEAK_MAX_MS = 7000;
+
     void say(String text) {
         if (this.speaker != null) {
             this.speaker.say(text, null);
@@ -1023,9 +1026,26 @@ public class VoiceSearchActivity extends Activity {
             };
             show(outcome.line.isEmpty() ? candidate.line() : outcome.line, TEXT, false);
             VoiceChime.play(1);
-            // Said alongside the 2 s countdown, never in front of it: the countdown starts now regardless.
-            this.ui.postDelayed(this.pendingPlay, RESTART_GUARD_MS);
-            say(VoiceAgent.spoken(outcome));
+            // Speak first, then open: the app opens once the reply has been said AND the 2 s countdown (Back = choices)
+            // has run, whichever is later; never later than SPEAK_MAX_MS, so a slow or failed voice can't hold it up.
+            final Runnable go = this.pendingPlay;
+            final boolean[] gate = {false, this.speaker == null};
+            final Runnable maybe = new Runnable() {
+                public void run() {
+                    if (VoiceSearchActivity.this.pendingPlay == go && gate[0] && gate[1]) {
+                        VoiceSearchActivity.this.ui.removeCallbacks(go);
+                        go.run();
+                    }
+                }
+            };
+            this.ui.postDelayed(new Runnable() { public void run() { gate[0] = true; maybe.run(); } }, RESTART_GUARD_MS);
+            this.ui.postDelayed(go, SPEAK_MAX_MS);
+            String line = VoiceAgent.spoken(outcome);
+            if (this.speaker != null && line != null && !line.trim().isEmpty()) {
+                this.speaker.say(line, new Runnable() { public void run() { gate[1] = true; VoiceSearchActivity.this.ui.postDelayed(maybe, 250); } });
+            } else {
+                gate[1] = true;
+            }
             return;
         }
         choices(outcome);

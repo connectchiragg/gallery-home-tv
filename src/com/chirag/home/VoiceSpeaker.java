@@ -50,8 +50,22 @@ final class VoiceSpeaker {
     VoiceSpeaker(Context context, String deepgramKey, String voice) {
         this.cloudKey = deepgramKey == null ? "" : deepgramKey.trim();
         this.cloudVoice = voice == null || voice.trim().isEmpty() ? "aura-2-thalia-en" : voice.trim();
+        this.appContext = context.getApplicationContext();
+        // The TV's own engine takes ~2.5 s to start and starting it while the mic opens delayed real audio; with a
+        // cloud voice it is only started if a cloud line fails.
+        if (this.cloudKey.isEmpty()) {
+            startLocal();
+        }
+    }
+
+    private final Context appContext;
+
+    private void startLocal() {
+        if (tts != null || dead) {
+            return;
+        }
         final long t0 = SystemClock.elapsedRealtime();
-        tts = new TextToSpeech(context.getApplicationContext(), new TextToSpeech.OnInitListener() {
+        tts = new TextToSpeech(appContext, new TextToSpeech.OnInitListener() {
             @Override
             public void onInit(int status) {
                 main.post(new Runnable() {
@@ -247,6 +261,9 @@ final class VoiceSpeaker {
     }
 
     private void sayLocal(String text, Runnable whenDone) {
+        if (tts == null && !dead) {
+            startLocal();
+        }
         if (text == null || text.trim().isEmpty() || dead || tts == null) {
             if (whenDone != null) {
                 main.post(whenDone);

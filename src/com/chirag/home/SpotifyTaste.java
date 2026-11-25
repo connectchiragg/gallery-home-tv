@@ -777,8 +777,8 @@ final class SpotifyTaste {
             return null;
         }
         String label = VoiceJson.str(o, "label").replaceAll("[\u2010-\u2015]", "-").replaceAll("[^\\p{L}\\p{N} '&-]", "").trim();
-        if (label.isEmpty() || label.length() > 30) {
-            label = phrase;
+        if (label.isEmpty() || label.length() > 30 || label.toLowerCase(java.util.Locale.ROOT).matches("^(no|not|none)\\b.*")) {
+            label = phrase; // the model sometimes answers "no jazz" when none of the user's songs fit
         }
         List<Item> fits = new ArrayList<>();
         // Picks come back as "Title - Artist" and are matched against the list by name: a model that miscounts

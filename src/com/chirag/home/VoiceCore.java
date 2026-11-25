@@ -1650,6 +1650,8 @@ final class VoiceCore {
         static final int LISTENING = 0;
         static final double MIN_RMS = 120.0d;
         static final double MAX_FLOOR = 2500.0d;
+        /** AC level (RMS) above which a frame counts as live microphone audio rather than a stuck value. */
+        static final double LIVE_RMS = 2.0d;
         static final double MODULATION = 1.8d;
         static final int NO_SPEECH = 2;
         static final int OPEN = 2;
@@ -1677,7 +1679,7 @@ final class VoiceCore {
         private double segLow;
         private double segMax;
         private int speechFrames;
-        int liveTimeoutMs = 2500;
+        int liveTimeoutMs = 9000; // remote mics can take ~5 s to deliver real audio
         int settleMs = 300;
         int settleMaxMs = 800;
         int sustainMs = 120;
@@ -1760,7 +1762,9 @@ final class VoiceCore {
             double d = 0.0d;
             this.level = this.phase != 0 ? Math.max(0.0d, Math.min(1.0d, ((Math.log10(Math.max(dSqrt, 1.0d)) * 20.0d) - 30.0d) / 50.0d)) : 0.0d;
             if (this.phase == 0) {
-                if (i > 4) {
+                // Live = sound that changes. Remote mics can deliver a frozen value for their first seconds; that is
+                // not live audio, and "Speak now" must wait for the real thing.
+                if (i > 4 && dSqrt > LIVE_RMS) {
                     this.phase = 1;
                     this.liveFrame = i2;
                 } else {
