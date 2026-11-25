@@ -15,5 +15,7 @@
   "auto_play_confidence": 0.85,
   "speak": true,
   "spotify_client_id": "",
-  "spotify_client_secret": ""
+  "spotify_client_secret": "",
+  "deepgram_key": "",
+  "tts_voice": "aura-2-thalia-en"
 }

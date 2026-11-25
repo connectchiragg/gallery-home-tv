@@ -64,7 +64,7 @@ cp voice.example.json voice.json
 
 - **Groq (required for voice):** the owner creates a free key at https://console.groq.com → API Keys, and
   puts it in `groq_key`. Free tier is enough for a household.
-- **Speech replies:** `speak: true` uses the TV's built-in text-to-speech; nothing to set up.
+- **Spoken replies:** `speak: true`. With a free [Deepgram](https://console.deepgram.com) key in `deepgram_key`, replies use a natural Aura-2 voice (`tts_voice`, default `aura-2-thalia-en`; others: `aura-2-andromeda-en`, `aura-2-apollo-en`, `aura-2-orion-en`). Without it, the TV's own voice speaks.
 
 ### Spotify (so music plays in the Spotify app, using their taste)
 
