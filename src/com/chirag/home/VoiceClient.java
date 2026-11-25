@@ -133,6 +133,8 @@ final class VoiceClient {
         int maxResults = 3;
         /** Speak a short reply for each outcome (voice.json "speak", default true). */
         boolean speak = true;
+        /** Deepgram Aura-2 voice for spoken replies when deepgram_key is set (voice.json "tts_voice"); else Android's own voice. */
+        String ttsVoice = "aura-2-thalia-en";
         /** Packages installed on this TV (filled in by the activity); null = unknown, assume all are. */
         java.util.Set<String> installed;
         String sttPrompt = "Movie and web series names, Hindi names written in English letters: Pushpa 2, Panchayat, Mirzapur, Stree 2, Jawan, Kantara, Dangal, Sholay, Animal, The Family Man.";
@@ -186,6 +188,7 @@ final class VoiceClient {
             config.region = opt(objTryParse, "region", config.region);
             config.sttPrompt = opt(objTryParse, "stt_prompt", config.sttPrompt);
             config.speak = VoiceJson.bool(objTryParse, config.speak, "speak");
+            config.ttsVoice = opt(objTryParse, "tts_voice", config.ttsVoice);
             double dNum2 = VoiceJson.num(objTryParse, "max_results");
             if (dNum2 >= 1.0d) {
                 config.maxResults = (int) Math.min(3.0d, dNum2);

@@ -654,6 +654,11 @@ final class SpotifyTaste {
         return "";
     }
 
+    /** Lower-case letters and digits only, single spaces: for matching "Title - Artist" however it is punctuated. */
+    static String normName(String s) {
+        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+    }
+
     static String langName(String code) {
         switch (code) {
             case "en": return "English";
@@ -756,8 +761,8 @@ final class SpotifyTaste {
                 : langName(lang) + " (the request asks for it)";
         String system = "You choose music for a voice request on a TV. The user asked for: \"" + said.trim() + "\""
                 + (phrase.isEmpty() ? "" : " (search phrase: \"" + phrase + "\")") + ". Language: " + langRule + ".\n"
-                + (list.isEmpty() ? "" : "Below are songs from the user's own Spotify listening, most-played first. Pick the ones that genuinely fit the request's genre, mood, era or activity, judging from what you know of each song and artist. Be strict: a song fits only if a listener would agree it is that kind of music; for an era (90s, 80s, old) the song must come from it; when songs are asked for, prefer songs with vocals; leave out anything unsure.\n")
-                + "Reply with JSON only: {\"fit\": [numbers of fitting songs from the list, best first, at most 6, [] if none], "
+                + (list.isEmpty() ? "" : "Below are songs from the user's own Spotify listening, most-played first. Pick the ones that genuinely fit the request's genre, mood, era or activity, judging from what you know of each song and artist. Be strict: a song fits only if a listener would agree it is that kind of music; for an era (90s, 80s, old) the song must come from it; when songs are asked for, prefer songs with vocals; leave out anything unsure. Neighbouring styles do NOT count: for 'jazz' pick real jazz (vocal or instrumental jazz artists), never lo-fi hip hop, jazz-hop, chillhop or 'jazzy beats' (Nujabes, Uyama Hiroto, jazztek and similar are lo-fi hip hop, not jazz); for 'lo-fi' pick lo-fi, not jazz standards; for 'rock' no pop. Only when the request itself names a blend (jazzy lo-fi, jazz hop) may blends fit.\n")
+                + "Reply with JSON only: {\"fit\": [the fitting songs copied exactly as \"Title - Artist\" from the list, best first, at most 6, [] if none], "
                 + "\"label\": \"2 to 4 words naming this music for a spoken reply, like jazzy lo-fi, 90s rock, chill jazz, workout music\", "
                 + "\"seeds\": [\"Title - Artist\", three real, well-known songs that are clearly this kind of music, in the language above, close to the user's taste], "
                 + "\"search\": \"a short Spotify track search phrase for this kind of music in that language\"}";
@@ -776,16 +781,23 @@ final class SpotifyTaste {
             label = phrase;
         }
         List<Item> fits = new ArrayList<>();
+        // Picks come back as "Title - Artist" and are matched against the list by name: a model that miscounts
+        // list numbers (it once mapped "jazz" to The Clash) can no longer pick an unrelated song.
         for (Object n : VoiceJson.list(o, "fit")) {
-            int k;
-            try {
-                k = (int) Double.parseDouble(String.valueOf(n));
-            } catch (NumberFormatException e) {
-                continue;
+            String want = normName(String.valueOf(n));
+            if (want.isEmpty()) continue;
+            Item hit = null;
+            for (Item cand : list) {
+                String have = normName(cand.line());
+                if (have.equals(want) || have.startsWith(want) || want.startsWith(have)) { hit = cand; break; }
             }
-            if (k >= 1 && k <= list.size() && !fits.contains(list.get(k - 1))) {
-                fits.add(list.get(k - 1));
+            if (hit == null) {
+                for (Item cand : list) {
+                    String title = normName(cand.name);
+                    if (title.length() > 2 && want.startsWith(title)) { hit = cand; break; }
+                }
             }
+            if (hit != null && !fits.contains(hit)) fits.add(hit);
         }
         Pick pk = new Pick();
         pk.label = label;

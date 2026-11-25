@@ -515,7 +515,7 @@ public class VoiceSearchActivity extends Activity {
             }
         }
         if (this.cfg.speak && this.speaker == null) {
-            this.speaker = new VoiceSpeaker(this);
+            this.speaker = new VoiceSpeaker(this, this.cfg.deepgramKey, this.cfg.ttsVoice);
         } else if (!this.cfg.speak && this.speaker != null) {
             this.speaker.release(false);
             this.speaker = null;

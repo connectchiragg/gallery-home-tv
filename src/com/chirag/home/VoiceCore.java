@@ -1649,6 +1649,7 @@ final class VoiceCore {
         static final int FLOOR_WINDOW_MS = 1500;
         static final int LISTENING = 0;
         static final double MIN_RMS = 120.0d;
+        static final double MAX_FLOOR = 2500.0d;
         static final double MODULATION = 1.8d;
         static final int NO_SPEECH = 2;
         static final int OPEN = 2;
@@ -1661,6 +1662,7 @@ final class VoiceCore {
         private int frameFill;
         private int framePeak;
         private long frameSum;
+        private long frameLin; // sum of samples: lets the RMS ignore a DC offset (a stuck mic delivers a constant value)
         private int frames;
         double level;
         private int loudRun;
@@ -1718,6 +1720,7 @@ final class VoiceCore {
                 this.pcm.write((s >> 8) & 255);
                 long j = s;
                 this.frameSum += j * j;
+                this.frameLin += j;
                 this.framePeak = Math.max(this.framePeak, Math.abs((int) s));
                 int i4 = this.frameFill + 1;
                 this.frameFill = i4;
@@ -1736,12 +1739,17 @@ final class VoiceCore {
             }
             System.arraycopy(this.ring, LISTENING, this.sorted, LISTENING, this.ringFill);
             Arrays.sort(this.sorted, LISTENING, this.ringFill);
-            return Math.max(1.0d, this.sorted[Math.min(this.ringFill - 1, (this.ringFill * FLOOR_PERCENTILE) / 100)]);
+            // Never let the floor rise above a level speech can't beat (ENTER x floor must stay well under full scale).
+            return Math.min(MAX_FLOOR, Math.max(1.0d, this.sorted[Math.min(this.ringFill - 1, (this.ringFill * FLOOR_PERCENTILE) / 100)]));
         }
 
         private int endFrame() {
             boolean z;
-            double dSqrt = Math.sqrt(this.frameSum / ((double) this.frame));
+            // AC energy only: variance = E[x^2] - E[x]^2. A constant (DC) frame counts as silence instead of
+            // as loud noise, which used to lift the noise floor so high that real speech could never cross it.
+            double mean = this.frameLin / ((double) this.frame);
+            double dSqrt = Math.sqrt(Math.max(0.0d, (this.frameSum / ((double) this.frame)) - (mean * mean)));
+            this.frameLin = 0L;
             int i = this.framePeak;
             this.frameSum = 0L;
             this.frameFill = LISTENING;

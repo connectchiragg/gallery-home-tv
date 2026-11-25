@@ -13,8 +13,10 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Short spoken replies through Android's own text-to-speech (free, offline with the Google engine): "Playing lo-fi
- * beats on Spotify", "Here's what I found". Prefers an English (India) voice that needs no network.
+ * Short spoken replies: "Playing lo-fi beats on Spotify", "Here's what I found".
+ * With a Deepgram key (voice.json "deepgram_key") the line is spoken by a natural Aura-2 voice ("tts_voice",
+ * default aura-2-thalia-en), streamed as 24 kHz PCM and played with an AudioTrack. Without a key, or when the
+ * network call fails, Android's own text-to-speech says it instead (Google engine, works offline).
  */
 final class VoiceSpeaker {
     static final String TAG = "Voice";
@@ -32,7 +34,22 @@ final class VoiceSpeaker {
     private Runnable done;
     private int utterance;
 
+    // ---- Deepgram Aura-2 (cloud voice) --------------------------------------------------------------
+    static final int CLOUD_RATE = 24000;
+    private final String cloudKey, cloudVoice;
+    private final java.util.concurrent.ExecutorService cloud = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile android.media.AudioTrack track;
+    private volatile int cloudTurn;
+    /** Fixed lines are fetched once and kept. */
+    private static final java.util.Map<String, byte[]> CACHE = java.util.Collections.synchronizedMap(new java.util.HashMap<String, byte[]>());
+
     VoiceSpeaker(Context context) {
+        this(context, null, null);
+    }
+
+    VoiceSpeaker(Context context, String deepgramKey, String voice) {
+        this.cloudKey = deepgramKey == null ? "" : deepgramKey.trim();
+        this.cloudVoice = voice == null || voice.trim().isEmpty() ? "aura-2-thalia-en" : voice.trim();
         final long t0 = SystemClock.elapsedRealtime();
         tts = new TextToSpeech(context.getApplicationContext(), new TextToSpeech.OnInitListener() {
             @Override
@@ -108,7 +125,7 @@ final class VoiceSpeaker {
                     if (l == null || !"en".equals(l.getLanguage())) {
                         continue;
                     }
-                    boolean india = "IN".equals(l.getCountry());
+                    boolean india = "US".equals(l.getCountry()); // fallback voice: US English sounds most natural on this engine
                     boolean installed = v.getFeatures() == null || !v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED);
                     int score = (india ? 100 : 0) + (v.isNetworkConnectionRequired() ? 0 : 40) + (installed ? 20 : 0) + v.getQuality() / 100;
                     if (score > bestScore) {
@@ -120,11 +137,11 @@ final class VoiceSpeaker {
         } catch (Exception e) {
             Log.w(TAG, "tts: could not list voices: " + e);
         }
-        if (best != null && "IN".equals(best.getLocale().getCountry())) {
+        if (best != null && "US".equals(best.getLocale().getCountry())) {
             tts.setVoice(best);
             return best.getName();
         }
-        int r = tts.setLanguage(EN_IN);
+        int r = tts.setLanguage(Locale.US);
         if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
             if (best != null) {
                 tts.setVoice(best);
@@ -138,6 +155,98 @@ final class VoiceSpeaker {
 
     /** Says text, replacing anything being said. done (may be null) runs on the main thread when it ends or fails. */
     void say(String text, Runnable whenDone) {
+        if (text != null && !text.trim().isEmpty() && !dead && !cloudKey.isEmpty()) {
+            sayCloud(text.trim(), whenDone);
+            return;
+        }
+        sayLocal(text, whenDone);
+    }
+
+    private void sayCloud(final String text, final Runnable whenDone) {
+        stopTrack();
+        final int turn = ++cloudTurn;
+        done = whenDone;
+        utterance++;
+        final String id = "v" + utterance;
+        cloud.execute(new Runnable() {
+            public void run() {
+                long t0 = SystemClock.elapsedRealtime();
+                byte[] pcm = CACHE.get(cloudVoice + "|" + text);
+                try {
+                    if (pcm == null) {
+                        pcm = fetch(text);
+                        if (text.length() < 40) CACHE.put(cloudVoice + "|" + text, pcm);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "tts: Deepgram failed (" + e.getMessage() + "), using the TV's voice");
+                    main.post(new Runnable() { public void run() { if (turn == cloudTurn && !dead) sayLocal(text, whenDone); } });
+                    return;
+                }
+                if (turn != cloudTurn || dead) return;
+                Log.i(TAG, "tts: \"" + text + "\" (" + cloudVoice + ", " + (SystemClock.elapsedRealtime() - t0) + " ms)");
+                play(pcm, turn);
+                finished(id);
+            }
+        });
+    }
+
+    private byte[] fetch(String text) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://api.deepgram.com/v1/speak?model="
+                + java.net.URLEncoder.encode(cloudVoice, "UTF-8") + "&encoding=linear16&sample_rate=" + CLOUD_RATE + "&container=none").openConnection();
+        try {
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(8000);
+            c.setDoOutput(true);
+            c.setRequestProperty("Authorization", "Token " + cloudKey);
+            c.setRequestProperty("Content-Type", "application/json");
+            org.json.JSONObject body = new org.json.JSONObject().put("text", text);
+            c.getOutputStream().write(body.toString().getBytes("UTF-8"));
+            if (c.getResponseCode() != 200) throw new java.io.IOException("HTTP " + c.getResponseCode());
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            try (java.io.InputStream in = c.getInputStream()) {
+                byte[] buf = new byte[8192];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    /** Plays 16-bit mono PCM and returns when it has been heard (or was stopped). Worker thread. */
+    private void play(byte[] pcm, int turn) {
+        android.media.AudioTrack t;
+        try {
+            t = new android.media.AudioTrack.Builder()
+                    .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setAudioFormat(new android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(CLOUD_RATE).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(Math.max(pcm.length, 2)).build();
+        } catch (Exception e) {
+            Log.w(TAG, "tts: audio output failed: " + e);
+            return;
+        }
+        t.write(pcm, 0, pcm.length);
+        track = t;
+        t.play();
+        long ms = pcm.length / 2 * 1000L / CLOUD_RATE;
+        long end = SystemClock.elapsedRealtime() + ms + 150;
+        while (SystemClock.elapsedRealtime() < end && turn == cloudTurn && !dead) {
+            SystemClock.sleep(40);
+        }
+        stopTrack();
+    }
+
+    private void stopTrack() {
+        android.media.AudioTrack t = track;
+        track = null;
+        if (t != null) {
+            try { t.stop(); } catch (Exception ignored) {}
+            t.release();
+        }
+    }
+
+    private void sayLocal(String text, Runnable whenDone) {
         if (text == null || text.trim().isEmpty() || dead || tts == null) {
             if (whenDone != null) {
                 main.post(whenDone);
@@ -185,7 +294,7 @@ final class VoiceSpeaker {
     }
 
     boolean speaking() {
-        return ready && tts != null && tts.isSpeaking();
+        return track != null || (ready && tts != null && tts.isSpeaking());
     }
 
     /** Stops speaking at once; a waiting done callback is dropped. */
@@ -194,6 +303,8 @@ final class VoiceSpeaker {
         pendingDone = null;
         done = null;
         utterance++;
+        cloudTurn++;
+        stopTrack();
         if (ready && tts != null) {
             tts.stop();
         }
@@ -204,6 +315,11 @@ final class VoiceSpeaker {
      * first, up to a few seconds; otherwise speech stops now.
      */
     void release(boolean letFinish) {
+        if (!letFinish) {
+            cloudTurn++;
+            stopTrack();
+        }
+        cloud.shutdown(); // a line already playing (the reply as an app opens) finishes on its own
         final TextToSpeech t = tts;
         tts = null;
         dead = true;
