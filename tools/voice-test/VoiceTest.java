@@ -17,7 +17,7 @@ import java.util.Locale;
  * Keys come from voice.json (path in $VOICE_JSON, default ../tv-launcher/voice.json next to this worktree,
  * then ./voice.json) or $GROQ_KEY. Nothing here prints a key.
  *
- * Usage: tools/voice-test/run.sh [filter]   (filter = substring of the queries to run)
+ * Usage: tools/voice-test/run.sh [filter]   (filter = substring of the queries to run; a|b|c for several)
  */
 public final class VoiceTest {
     static final String PRIME = "com.amazon.amazonvideo.livingroom";
@@ -31,6 +31,10 @@ public final class VoiceTest {
             return;
         }
         VoiceClient.Config cfg = config();
+        // Taste cache and the launcher's played-track log live in out/ (gitignored), never next to voice.json.
+        cfg.dataDir = new File(dir, "out");
+        cfg.dataDir.mkdirs();
+        System.out.println("Spotify taste: " + (cfg.spotifyRefresh.isEmpty() ? "off (no spotify_refresh_token)" : "owner sign-in configured"));
         System.out.println("Spotify Web API: " + (cfg.hasSpotifyApi() ? "configured" : "not configured (music plays from YouTube unless Spotify is named)"));
         String filter = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "";
         long now = System.currentTimeMillis();
@@ -42,7 +46,7 @@ public final class VoiceTest {
             if (line.trim().isEmpty() || line.startsWith("#")) continue;
             String[] f = line.split("\t");
             if (f.length < 3) continue;
-            if (!filter.isEmpty() && !f[0].toLowerCase(Locale.ROOT).contains(filter)) continue;
+            if (!filter.isEmpty() && !matches(f[0].toLowerCase(Locale.ROOT), filter)) continue;
             cases.add(f);
         }
         in.close();
@@ -106,6 +110,9 @@ public final class VoiceTest {
                     .append(" | ").append(app).append(" | ").append(ms).append(" | ").append(ok ? "PASS" : "FAIL").append(" |\n");
             System.out.println(String.format(Locale.ROOT, "%-4s %-42s route=%-15s %-6s app=%-8s %5dms  %s  | says: %s",
                     ok ? "PASS" : "FAIL", query, route, decision, app, ms, top, spoken));
+            if (o != null && !o.candidates.isEmpty() && !o.candidates.get(0).why.isEmpty()) {
+                System.out.println("       seed: " + o.candidates.get(0).detail.replaceFirst("^starting with ", "") + "  <- " + o.candidates.get(0).why);
+            }
             traces.println("=== " + query + "  [" + (ok ? "PASS" : "FAIL") + "]");
             traces.println(o == null ? err : o.trace);
             if (o != null) {
@@ -174,6 +181,14 @@ public final class VoiceTest {
         first = o.candidates.isEmpty() || o.candidates.get(0).links.isEmpty() ? null : o.candidates.get(0).links.get(0);
         fails += check("Spotify not installed: YouTube (" + (first == null ? "nothing" : first.pkg) + ")", first != null && YT.equals(first.pkg));
         System.out.println(fails == 0 ? "self-test passed" : fails + " self-test check(s) failed");
+    }
+
+    /** filter = one substring, or several joined with "|" (any may match). */
+    static boolean matches(String query, String filter) {
+        for (String f : filter.split("\\|")) {
+            if (!f.isEmpty() && query.contains(f)) return true;
+        }
+        return false;
     }
 
     static int check(String what, boolean ok) {

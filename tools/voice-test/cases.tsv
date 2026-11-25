@@ -33,3 +33,13 @@ Dhruv Rathee ka naya video	youtube_latest	youtube	Hinglish channel latest
 open Netflix	open_app	netflix	open app
 how to make pasta video	youtube_search	youtube	how-to video
 play Animal movie	play_title	netflix	film with kind word
+# Taste (needs spotify_refresh_token): seeds come from the owner's own listening; the run prints seed <- why.
+play something I'd like	play_music	spotify*	taste: owner's songs
+play my music	play_music	spotify*	taste
+play music	play_music	spotify*	taste, bare
+kuch accha gaana lagao	play_music	spotify*	taste, Hinglish
+play my favourites	play_music	spotify*	taste: favourites
+play some jazz	play_music	spotify*	genre from owner's listening
+play something chill	play_music	spotify*	mood from owner's listening
+play 90s rock	play_music	spotify*	era + genre
+play some hindi songs i like	play_music	spotify*	taste + language named

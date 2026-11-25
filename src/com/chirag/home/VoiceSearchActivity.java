@@ -520,6 +520,16 @@ public class VoiceSearchActivity extends Activity {
             this.speaker.release(false);
             this.speaker = null;
         }
+        this.cfg.file = file;
+        this.cfg.dataDir = externalFilesDir;
+        // The owner's Spotify taste loads in the background, so a music request finds it ready.
+        SpotifyTaste.logger = new SpotifyTaste.Logger() {
+            @Override
+            public void log(String s) {
+                Log.i(TAG, "taste " + s);
+            }
+        };
+        SpotifyTaste.warm(this.cfg, VoiceClient.REAL);
         this.client = new VoiceClient(this.cfg, VoiceClient.REAL);
         this.hint.setText(string != null ? string + "  (copy voice.example.json there and add your keys)" : "Mic button: speak again · Back: close");
         this.hint.setVisibility(string == null ? 8 : 0);
@@ -1231,6 +1241,17 @@ public class VoiceSearchActivity extends Activity {
             try {
                 startActivity(leanbackLaunchIntentForPackage);
                 Log.i(TAG, "opened " + link);
+                if (link.uri != null && link.uri.startsWith("spotify:track:")) {
+                    // The launcher's own plays must not count as the owner's taste.
+                    final java.io.File dir = this.cfg == null ? null : this.cfg.dataDir;
+                    final String id = link.uri.substring("spotify:track:".length());
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            SpotifyTaste.played(dir, id);
+                        }
+                    }, "spotify-played").start();
+                }
                 this.handedOff = true;
                 ArtStore.launched(this, link, title);
                 finish();
