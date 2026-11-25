@@ -39,6 +39,8 @@ final class VoiceAgent {
     final VoiceClient client;
     final VoiceClient.Http http;
     private final List<String> trace = new ArrayList();
+    /** The request as said, for music that depends on the owner's taste and language. */
+    private String said = "";
     private static final Pattern LATEST_BY = Pattern.compile("^(?:the )?(?:latest|newest|new|recent|naya|nayi|naye|taaza) (?:video|videos|vlog|upload|stream|episode)s? (?:by|of|from) (.+)$");
     private static final Pattern X_LATEST = Pattern.compile("^(.+?) (?:ka |ki |ke |s )?(?:latest|newest|new|recent|naya|nayi|naye|taaza) (?:video|videos|vlog|upload|stream)s?$");
     private static final Pattern CHANNEL = Pattern.compile("^(.+?)(?: ka| ki| ke| s)? channel$");
@@ -52,7 +54,7 @@ final class VoiceAgent {
     private static final Set<String> MUSIC_W = set("song", "songs", "gaana", "gaane", "gana", "gane", "music", "playlist", "album", "bhajan", "ghazal");
     /** Genre, mood, era and activity words: "play some lo-fi", "sad songs", "90s hits", "workout". */
     static final Set<String> GENRE_W = set("lofi", "jazz", "blues", "edm", "techno", "trance", "house", "remix", "remixes", "instrumental", "beats", "hits", "chartbusters", "qawwali", "sufi", "bhajan", "bhajans", "ghazal", "ghazals", "aarti", "kirtan", "lullaby", "lullabies", "karaoke", "hiphop", "rap", "rock", "metal", "classical", "carnatic", "hindustani", "kpop", "indie", "acoustic", "unplugged", "devotional", "mashup", "jukebox", "dj");
-    static final Set<String> MOOD_W = set("chill", "chilled", "sad", "romantic", "workout", "gym", "running", "study", "studying", "focus", "sleep", "sleeping", "relaxing", "calm", "peaceful", "meditation", "upbeat", "energetic", "motivational", "retro", "purane", "puraane", "evergreen", "80s", "90s", "70s", "60s", "2000s", "soothing");
+    static final Set<String> MOOD_W = set("chill", "chilled", "sad", "romantic", "workout", "gym", "running", "study", "studying", "focus", "sleep", "sleeping", "relaxing", "calm", "peaceful", "meditation", "upbeat", "energetic", "motivational", "retro", "purane", "puraane", "evergreen", "80s", "90s", "70s", "60s", "2000s", "soothing", "party", "dance");
     /** Words that say a request is about a film or a show, not music. */
     private static final Set<String> SCREEN_W = set("movie", "movies", "film", "films", "series", "show", "shows", "season", "episode", "episodes", "trailer", "webseries", "serial", "documentary", "anime");
     private static final Set<String> NEW_W = set("latest", "newest", "new", "recent", "naya", "nayi", "naye", "taaza");
@@ -109,6 +111,8 @@ final class VoiceAgent {
         String where = "";
         /** What to say aloud when this is played; empty = built from label and where. */
         String say = "";
+        /** For a music seed: why this track was chosen (taste, genre fit, ...); for logs and the test harness. */
+        String why = "";
         List<VoiceCore.Link> links = new ArrayList();
 
         Candidate() {
@@ -189,6 +193,7 @@ final class VoiceAgent {
             }
         }
         Outcome outcome = new Outcome();
+        this.said = str == null ? "" : str;
         long jNanoTime = System.nanoTime();
         VoiceCore.Query queryUnderstand = VoiceCore.understand(str);
         outcome.query = queryUnderstand;
@@ -430,6 +435,14 @@ final class VoiceAgent {
                 route.recent = true;
             }
         }
+        // "play music", "play something I'd like", "kuch accha gaana lagao", "my favourites": the owner's own taste.
+        if (!z2 && !zEquals && SpotifyTaste.isTasteRequest(str2)) {
+            route.name = MUSIC;
+            route.entity = musicQuery(str2);
+            route.kind = "taste";
+            route.strong = true;
+            return route;
+        }
         // Music: a music word ("songs", "gaane", "playlist"), a genre ("lo-fi", "jazz", "bhajan"), Spotify named,
         // or a mood/era/activity on its own ("something chill for studying", "90s bollywood", "workout").
         boolean musicy = z3 || (genre && !screen) || (mood && !screen && !z4);
@@ -617,7 +630,7 @@ final class VoiceAgent {
                 }
                 dArr[0] = (!route.name.equals(RESUME) || route.what.equals(route2.what) || route.what.equals("list")) ? 1.0d : 0.8d;
                 if (route.name.equals(MUSIC)) {
-                    if (!route2.kind.isEmpty()) {
+                    if (!route2.kind.isEmpty() && !"taste".equals(route.kind)) {
                         route.kind = route2.kind;
                     }
                     route.seed = route2.seed;
@@ -960,7 +973,7 @@ final class VoiceAgent {
     }
 
     static boolean isBroad(String kind) {
-        return "genre".equals(kind) || "mood".equals(kind) || "playlist".equals(kind);
+        return "genre".equals(kind) || "mood".equals(kind) || "playlist".equals(kind) || "taste".equals(kind);
     }
 
     /** The words to search a music app with: the router's phrase when there is one, else the cleaned request. */
@@ -1010,6 +1023,8 @@ final class VoiceAgent {
     }
 
     static final int SPOTIFY_TIMEOUT_MS = 4000;
+    /** How long a music request may wait for the owner's taste profile the very first time (later it is cached). */
+    static final int TASTE_WAIT_MS = 8000;
 
     /**
      * Music: Spotify by default, YouTube when it was named. Spotify on the TV only starts playing from a track link,
@@ -1023,6 +1038,28 @@ final class VoiceAgent {
         boolean askedSpotify = "spotify".equals(route.app);
         String why = "";
         if (!wantYoutube && this.cfg.has("spotify")) {
+            boolean taste = "taste".equals(route.kind) || SpotifyTaste.isTasteRequest(this.said);
+            if ((taste || isBroad(route.kind)) && this.cfg.hasSpotifyApi()) {
+                // No song or artist named: start from the owner's own listening, or a genre-true song in their language.
+                SpotifyTaste.Pick pk = SpotifyTaste.pick(this.client, this.said, taste ? "" : q, taste, TASTE_WAIT_MS);
+                if (pk != null && pk.track != null) {
+                    VoiceClient.Track track = pk.track;
+                    String what = pk.label.replaceFirst("(?i)^some ", "");
+                    Found found = new Found();
+                    Candidate c = new Candidate();
+                    c.label = "Playing " + what + " on Spotify";
+                    c.detail = "starting with " + songName(track.name) + " · " + track.artist;
+                    c.say = "Playing " + (taste ? what : "some " + speakable(what)) + " on Spotify";
+                    c.why = pk.why;
+                    c.links = VoiceCore.spotifyTrackLinks(track.id, q, this.cfg.searchLinks);
+                    found.cands.add(c);
+                    found.action = true;
+                    found.match = 1.0d;
+                    found.note = "Spotify seed " + track.name + " - " + track.artist + " (" + track.id + "): " + pk.why;
+                    return found;
+                }
+                this.trace.add("taste: nothing better than a plain search" + (this.cfg.spotifyRefresh.isEmpty() ? " (no spotify_refresh_token)" : ""));
+            }
             boolean broad = isBroad(route.kind);
             String lookFor = broad && !route.seed.isEmpty() ? route.seed.replace(" - ", " ") : broad ? q : withoutSongWord(q);
             VoiceClient.Track track = this.client.spotifyTrack(lookFor, broad && !route.seed.isEmpty() ? "song" : route.kind, route.artist, SPOTIFY_TIMEOUT_MS);

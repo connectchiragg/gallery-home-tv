@@ -112,6 +112,13 @@ final class VoiceClient {
         /** Spotify Web API app (free, developer.spotify.com): lets music play on Spotify by finding the track. */
         String spotifyId = "";
         String spotifySecret = "";
+        /** Spotify user sign-in (tools/spotify-auth/auth.py): read-only access to the owner's listening, for taste. */
+        String spotifyRefresh = "";
+        /** Groq model that judges which of the owner's songs fit a genre or mood request. */
+        String groqTasteModel = "openai/gpt-oss-120b";
+        /** voice.json itself (to save a rotated Spotify refresh token) and a folder for small caches; null = none. */
+        File file;
+        File dataDir;
         boolean justwatch = false;
         boolean llm = true;
         double autoPlay = 0.8d;
@@ -155,6 +162,8 @@ final class VoiceClient {
             config.tmdbKey = key(objTryParse, "tmdb_key");
             config.spotifyId = key(objTryParse, "spotify_client_id");
             config.spotifySecret = key(objTryParse, "spotify_client_secret");
+            config.spotifyRefresh = key(objTryParse, "spotify_refresh_token");
+            config.groqTasteModel = opt(objTryParse, "groq_taste_model", config.groqTasteModel);
             config.groqSttModel = opt(objTryParse, "groq_stt_model", config.groqSttModel);
             config.groqLlmModel = opt(objTryParse, "groq_llm_model", config.groqLlmModel);
             config.sarvamModel = opt(objTryParse, "sarvam_model", config.sarvamModel);
@@ -202,7 +211,9 @@ final class VoiceClient {
                     while (true) {
                         int i = fileInputStream.read(bArr);
                         if (i <= 0) {
-                            return parse(byteArrayOutputStream.toString("UTF-8"));
+                            Config config = parse(byteArrayOutputStream.toString("UTF-8"));
+                            config.file = file;
+                            return config;
                         }
                         byteArrayOutputStream.write(bArr, 0, i);
                     }
@@ -280,7 +291,7 @@ final class VoiceClient {
         this.http = http;
     }
 
-    private static Map<String, String> headers(String... strArr) {
+    static Map<String, String> headers(String... strArr) {
         LinkedHashMap linkedHashMap = new LinkedHashMap();
         int i = 0;
         while (true) {
@@ -293,7 +304,7 @@ final class VoiceClient {
         }
     }
 
-    private Object json(String str, String str2, String str3, Map<String, String> map, byte[] bArr, int i) throws VoiceException {
+    Object json(String str, String str2, String str3, Map<String, String> map, byte[] bArr, int i) throws VoiceException {
         long jNanoTime = System.nanoTime();
         try {
             Resp respCall = this.http.call(str2, str3, map, bArr, i);
@@ -341,7 +352,7 @@ final class VoiceClient {
         }
     }
 
-    private static byte[] utf8(String str) {
+    static byte[] utf8(String str) {
         try {
             return str.getBytes("UTF-8");
         } catch (UnsupportedEncodingException e) {
@@ -881,6 +892,11 @@ final class VoiceClient {
     private static long spotifyTokenUntil;
 
     private synchronized String spotifyToken(int timeoutMs) throws VoiceException {
+        // The owner's own sign-in when there is one (search then also knows their market); else the app-only token.
+        String user = SpotifyTaste.userToken(this, timeoutMs);
+        if (user != null) {
+            return user;
+        }
         if (!spotifyToken.isEmpty() && System.currentTimeMillis() < spotifyTokenUntil) {
             return spotifyToken;
         }
