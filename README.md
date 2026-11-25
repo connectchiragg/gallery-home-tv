@@ -77,6 +77,9 @@ same key.
 
 To go back to the stock launcher: Settings → Apps → Default apps → Home app.
 
+> Setting this up for someone else with Claude Code? Point it at [CLAUDE.md](CLAUDE.md): it has the full
+> procedure, including the Spotify developer app and sign-in.
+
 ## Making it yours
 
 - **Paintings:** add JPEGs (1280×720) to `paintings/` and entries to `catalog.json`; rotation speed is
